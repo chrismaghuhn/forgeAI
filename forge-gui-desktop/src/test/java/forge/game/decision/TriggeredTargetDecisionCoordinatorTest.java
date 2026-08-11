@@ -4,6 +4,7 @@ import forge.ai.AITest;
 import forge.ai.LobbyPlayerAi;
 import forge.ai.PlayerControllerAi;
 import forge.game.Game;
+import forge.game.GameObject;
 import forge.game.ability.AbilityFactory;
 import forge.game.ability.ApiType;
 import forge.game.card.Card;
@@ -15,12 +16,21 @@ import forge.game.trigger.Trigger;
 import forge.game.trigger.TriggerType;
 import forge.game.trigger.WrappedAbility;
 import forge.game.zone.ZoneType;
+import forge.util.DeterminismAuditRandom;
+import forge.util.MyRandom;
 import org.testng.annotations.Test;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
@@ -330,6 +340,238 @@ public class TriggeredTargetDecisionCoordinatorTest extends AITest {
                 "external preparation must not invoke the native target callback");
     }
 
+    @Test
+    public void nativeZeroTargetBloodUsesForgeNoStackPathWithoutDecisionRequest() throws Exception {
+        final BloodFixture fixture = bloodFixtureWithTargetCount(0);
+        final TargetDecisionProvider provider = new TargetDecisionProvider();
+        final TargetDecisionProvider.Generation generation = provider.generateTargetRequest(
+                fixture.ability(), fixture.chooser(), null);
+        assertEquals(generation.getStatus(), TargetDecisionProvider.Status.INVALID_TARGETING);
+        assertNull(generation.getRequest(),
+                "zero legal Blood targets must not produce an exported DecisionRequest");
+        assertEquals(new TriggeredTargetDecisionCoordinator().classify(fixture.wrapper()),
+                TriggeredTargetDecisionCoordinator.Classification.ADMITTED);
+
+        final CountingTargetController nativeController = installCountingController(
+                fixture.game(), fixture.chooser());
+        try (TraceCapture trace = attachTrace(fixture.game())) {
+            final int stackSizeBefore = fixture.game().getStack().size();
+
+            assertFalse(nativeController.playTrigger(fixture.source(), fixture.wrapper(), true));
+            assertEquals(nativeController.getNativeCallbackCalls(), 1,
+                    "native Blood preparation must retain Forge's failed no-target callback");
+            assertEquals(nativeController.getResolverCalls(), 0);
+            assertNull(nativeController.getTargetDecisionResolver());
+            assertEquals(nativeController.getConfirmTriggerCalls(), 0);
+            assertEquals(fixture.game().getStack().size(), stackSizeBefore,
+                    "failed mandatory native targeting must not push a stack entry");
+            assertTrue(fixture.ability().getTargets().isEmpty());
+
+            final List<String> records = trace.finishAndReadDecisionTrace();
+            assertTrue(records.stream().noneMatch(record -> record.startsWith("DECISION_TRACE_V2|REQUEST|")),
+                    "zero-target native Blood must not create a C2A request or teacher capture");
+            assertTrue(records.stream().noneMatch(record -> record.startsWith("DECISION_TRACE_V2|RESULT|")));
+        }
+    }
+
+    @Test
+    public void nativeForcedOneTargetBloodMapsSoleCandidateOnce() throws Exception {
+        final BloodFixture fixture = bloodFixtureWithTargetCount(1);
+        final CountingTargetController nativeController = installCountingController(
+                fixture.game(), fixture.chooser());
+        try (TraceCapture trace = attachTrace(fixture.game())) {
+            final int stackSizeBefore = fixture.game().getStack().size();
+
+            assertTrue(nativeController.playTrigger(fixture.source(), fixture.wrapper(), true));
+            assertEquals(nativeController.getNativeCallbackCalls(), 1,
+                    "the native adapter must be called exactly once for a forced Blood target");
+            assertEquals(nativeController.getResolverCalls(), 0);
+            assertNull(nativeController.getTargetDecisionResolver());
+            assertEquals(nativeController.getConfirmTriggerCalls(), 1);
+            assertSame(nativeController.getNativeTarget(), fixture.firstTarget());
+            assertEquals(fixture.game().getStack().size(), stackSizeBefore,
+                    "Blood's native no-stack route must remain unchanged");
+            assertTrue(containsCardIdInZone(fixture.game(), fixture.firstTarget().getId(), ZoneType.Exile));
+
+            final TraceEvidence evidence = targetTrace(trace.finishAndReadDecisionTrace());
+            assertEquals(evidence.requestDecisionType(), "TARGET");
+            assertEquals(evidence.requestForced(), "true");
+            assertEquals(evidence.resultKind(), "FORCED");
+            assertEquals(evidence.nativeCallbackCompleted(), "true");
+            assertEquals(evidence.mappingAttempted(), "true");
+            assertEquals(evidence.engineForcedBypass(), "false");
+            assertTrue(evidence.selectedCandidateIsListed());
+        }
+    }
+
+    @Test
+    public void nativeStrategicMultiTargetBloodMapsExactlyOneNewTargetOnce() throws Exception {
+        final BloodFixture fixture = bloodFixture();
+        final CountingTargetController nativeController = installCountingController(
+                fixture.game(), fixture.chooser());
+        try (TraceCapture trace = attachTrace(fixture.game())) {
+            final int stackSizeBefore = fixture.game().getStack().size();
+
+            assertTrue(nativeController.playTrigger(fixture.source(), fixture.wrapper(), true));
+            assertEquals(nativeController.getNativeCallbackCalls(), 1,
+                    "the native adapter must be called exactly once for a strategic Blood target");
+            assertEquals(nativeController.getResolverCalls(), 0);
+            assertNull(nativeController.getTargetDecisionResolver());
+            assertEquals(nativeController.getConfirmTriggerCalls(), 1);
+            assertNotNull(nativeController.getNativeTarget());
+            assertTrue(fixture.targetIds().contains(nativeController.getNativeTarget().getId()));
+            assertEquals(countTargetIdsInZone(fixture, ZoneType.Exile), 1,
+                    "native targeting must apply exactly one legal candidate");
+            assertEquals(countTargetIdsInZone(fixture, ZoneType.Graveyard), 1);
+            assertEquals(fixture.game().getStack().size(), stackSizeBefore);
+
+            final TraceEvidence evidence = targetTrace(trace.finishAndReadDecisionTrace());
+            assertEquals(evidence.requestDecisionType(), "TARGET");
+            assertEquals(evidence.requestForced(), "false");
+            assertEquals(evidence.resultKind(), "CHOSEN");
+            assertEquals(evidence.nativeCallbackCompleted(), "true");
+            assertEquals(evidence.mappingAttempted(), "true");
+            assertTrue(evidence.selectedCandidateIsListed(),
+                    "the native target must map to one candidate from the existing request");
+        }
+    }
+
+    @Test
+    public void externalBloodTargetAStaysAuthoritativeThroughConfirmationAndNoStackResolution() throws Exception {
+        final BloodFixture fixture = bloodFixture();
+        final CountingTargetController controller = installCountingController(
+                fixture.game(), fixture.chooser());
+        final AtomicInteger resolverCalls = new AtomicInteger();
+        final AtomicReference<LegalCandidate> selectedCandidate = new AtomicReference<>();
+        controller.setTargetDecisionResolver(request -> {
+            resolverCalls.incrementAndGet();
+            final LegalCandidate selected = firstCardCandidate(request);
+            selectedCandidate.set(selected);
+            return selected;
+        });
+
+        try (TraceCapture trace = attachTrace(fixture.game())) {
+            final int stackSizeBefore = fixture.game().getStack().size();
+
+            assertTrue(controller.playTrigger(fixture.source(), fixture.wrapper(), true));
+            final Card targetA = (Card) selectedCandidate.get().getTarget();
+            assertSame(controller.getTargetAtConfirmation(), targetA,
+                    "external preparation must leave target A on the live underlying ability");
+            assertEquals(resolverCalls.get(), 1);
+            assertEquals(controller.getNativeCallbackCalls(), 0,
+                    "confirmTrigger's temporary target evaluation must not re-enter C2A");
+            assertEquals(controller.getConfirmTriggerCalls(), 1);
+            assertEquals(fixture.game().getStack().size(), stackSizeBefore,
+                    "the existing external no-stack route must remain intact");
+            assertTrue(containsCardIdInZone(fixture.game(), targetA.getId(), ZoneType.Exile),
+                    "the effect must consume stack/no-stack target A rather than temporary target B");
+            assertEquals(countTargetIdsInZone(fixture, ZoneType.Exile), 1);
+            assertEquals(countTargetIdsInZone(fixture, ZoneType.Graveyard), 1);
+
+            final TraceEvidence evidence = targetTrace(trace.finishAndReadDecisionTrace());
+            assertEquals(evidence.resultKind(), "CHOSEN");
+            assertEquals(evidence.nativeCallbackCompleted(), "false");
+            assertEquals(evidence.mappingAttempted(), "false");
+            assertTrue(evidence.selectedCandidateIsListed());
+        }
+    }
+
+    @Test
+    public void stackTimeBloodTargetAStaysAuthoritativeThroughTemporaryConfirmationTarget() throws Exception {
+        final BloodFixture fixture = bloodFixture();
+        final CountingTargetController controller = installCountingController(
+                fixture.game(), fixture.chooser());
+        final AtomicInteger resolverCalls = new AtomicInteger();
+        final AtomicReference<LegalCandidate> selectedCandidate = new AtomicReference<>();
+
+        try (TraceCapture trace = attachTrace(fixture.game())) {
+            final TriggeredTargetDecisionCoordinator.Preparation preparation =
+                    new TriggeredTargetDecisionCoordinator().prepare(
+                            fixture.wrapper(), fixture.chooser(), controller.getTargetDecisionProvider(), request -> {
+                                resolverCalls.incrementAndGet();
+                                final LegalCandidate selected = firstCardCandidate(request);
+                                selectedCandidate.set(selected);
+                                return selected;
+                            });
+            assertEquals(preparation.getStatus(), TriggeredTargetDecisionCoordinator.PreparationStatus.PREPARED);
+
+            final Card targetA = (Card) selectedCandidate.get().getTarget();
+            assertSame(fixture.ability().getTargets().get(0), targetA);
+            final int stackSizeBefore = fixture.game().getStack().size();
+            fixture.game().getStack().add(fixture.wrapper());
+            assertEquals(fixture.game().getStack().size(), stackSizeBefore + 1);
+
+            fixture.game().getStack().resolveStack();
+
+            assertEquals(resolverCalls.get(), 1);
+            assertEquals(controller.getNativeCallbackCalls(), 0,
+                    "the later temporary B evaluation must not invoke the C2A native adapter");
+            assertEquals(controller.getConfirmTriggerCalls(), 1);
+            assertSame(controller.getTargetAtConfirmation(), targetA);
+            assertEquals(fixture.game().getStack().size(), stackSizeBefore);
+            assertTrue(containsCardIdInZone(fixture.game(), targetA.getId(), ZoneType.Exile),
+                    "the ChangeZone effect must consume stack-time target A");
+            assertEquals(countTargetIdsInZone(fixture, ZoneType.Exile), 1);
+            assertEquals(countTargetIdsInZone(fixture, ZoneType.Graveyard), 1);
+
+            final TraceEvidence evidence = targetTrace(trace.finishAndReadDecisionTrace());
+            assertEquals(evidence.resultKind(), "CHOSEN");
+            assertEquals(evidence.nativeCallbackCompleted(), "false");
+            assertEquals(evidence.mappingAttempted(), "false");
+            assertTrue(evidence.selectedCandidateIsListed());
+        }
+    }
+
+    @Test
+    public void externalBloodFizzleDoesNotRetargetAfterStackPreparation() throws Exception {
+        final BloodFixture fixture = bloodFixture();
+        final CountingTargetController controller = installCountingController(
+                fixture.game(), fixture.chooser());
+        final AtomicInteger resolverCalls = new AtomicInteger();
+        final AtomicReference<LegalCandidate> selectedCandidate = new AtomicReference<>();
+
+        try (TraceCapture trace = attachTrace(fixture.game())) {
+            final TriggeredTargetDecisionCoordinator.Preparation preparation =
+                    new TriggeredTargetDecisionCoordinator().prepare(
+                            fixture.wrapper(), fixture.chooser(), controller.getTargetDecisionProvider(), request -> {
+                                resolverCalls.incrementAndGet();
+                                final LegalCandidate selected = firstCardCandidate(request);
+                                selectedCandidate.set(selected);
+                                return selected;
+                            });
+            assertEquals(preparation.getStatus(), TriggeredTargetDecisionCoordinator.PreparationStatus.PREPARED);
+
+            final Card targetA = (Card) selectedCandidate.get().getTarget();
+            assertSame(fixture.ability().getTargets().get(0), targetA);
+            final int stackSizeBefore = fixture.game().getStack().size();
+            fixture.game().getStack().add(fixture.wrapper());
+            assertEquals(fixture.game().getStack().size(), stackSizeBefore + 1);
+            assertSame(fixture.ability().getTargets().get(0), targetA);
+
+            fixture.game().getAction().moveTo(ZoneType.Exile, targetA, null, null);
+            fixture.game().getStack().resolveStack();
+
+            assertEquals(resolverCalls.get(), 1,
+                    "an illegal stack-time target must not trigger a second TARGET request");
+            assertEquals(controller.getNativeCallbackCalls(), 0);
+            assertEquals(controller.getConfirmTriggerCalls(), 0,
+                    "a normal Forge fizzle must stop before confirmTrigger");
+            assertEquals(fixture.game().getStack().size(), stackSizeBefore);
+            assertTrue(fixture.ability().getTargets().isEmpty(),
+                    "fizzle may clear the stale target but must not replace it");
+            assertEquals(countTargetIdsInZone(fixture, ZoneType.Exile), 1,
+                    "the original A must remain the only moved card");
+            assertEquals(countTargetIdsInZone(fixture, ZoneType.Graveyard), 1,
+                    "fizzle must not apply Blood to another candidate");
+
+            final TraceEvidence evidence = targetTrace(trace.finishAndReadDecisionTrace());
+            assertEquals(evidence.resultKind(), "CHOSEN");
+            assertEquals(evidence.nativeCallbackCompleted(), "false");
+            assertEquals(evidence.mappingAttempted(), "false");
+            assertTrue(evidence.selectedCandidateIsListed());
+        }
+    }
+
     private BloodFixture bloodFixture() {
         final Game game = initAndCreateGame();
         final Player chooser = game.getPlayers().get(1);
@@ -342,6 +584,28 @@ public class TriggeredTargetDecisionCoordinatorTest extends AITest {
         ability.setActivatingPlayer(chooser);
         return new BloodFixture(game, chooser, opponent, source, trigger, ability, firstTarget,
                 List.of(firstTarget.getId(), secondTarget.getId()).stream().sorted().toList(),
+                new WrappedAbility(trigger, ability, chooser));
+    }
+
+    private BloodFixture bloodFixtureWithTargetCount(final int targetCount) {
+        if (targetCount == 2) {
+            return bloodFixture();
+        }
+        if (targetCount < 0 || targetCount > 1) {
+            throw new IllegalArgumentException("test fixture supports zero or one target here");
+        }
+
+        final Game game = initAndCreateGame();
+        final Player chooser = game.getPlayers().get(1);
+        final Player opponent = game.getPlayers().get(0);
+        final Card source = addCardToZone("Blood Operative", chooser, ZoneType.Battlefield);
+        final Card firstTarget = targetCount == 0
+                ? null : addCardToZone("Runeclaw Bear", opponent, ZoneType.Graveyard);
+        final Trigger trigger = bloodTrigger(source);
+        final SpellAbility ability = trigger.ensureAbility();
+        ability.setActivatingPlayer(chooser);
+        return new BloodFixture(game, chooser, opponent, source, trigger, ability, firstTarget,
+                firstTarget == null ? List.of() : List.of(firstTarget.getId()),
                 new WrappedAbility(trigger, ability, chooser));
     }
 
@@ -471,11 +735,105 @@ public class TriggeredTargetDecisionCoordinatorTest extends AITest {
         return controller;
     }
 
+    private static LegalCandidate firstCardCandidate(final DecisionRequest request) {
+        return request.getCandidates().stream()
+                .filter(candidate -> candidate.getTargetKind() == TargetCandidateKind.TARGET_CARD)
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("expected a Blood card candidate"));
+    }
+
+    private static long countTargetIdsInZone(final BloodFixture fixture, final ZoneType zone) {
+        return fixture.game().getCardsIn(zone).stream()
+                .filter(card -> fixture.targetIds().contains(card.getId()))
+                .count();
+    }
+
+    private static boolean containsCardIdInZone(final Game game, final int cardId, final ZoneType zone) {
+        return game.getCardsIn(zone).stream().anyMatch(card -> card.getId() == cardId);
+    }
+
+    private static TraceCapture attachTrace(final Game game) throws IOException {
+        final Random previousRandom = MyRandom.getRandom();
+        final DeterminismAuditRandom auditRandom = new DeterminismAuditRandom(20260811L);
+        MyRandom.setRandom(auditRandom);
+        Path directory = null;
+        try {
+            directory = Files.createTempDirectory("frl02k-c2a-coordinator-");
+            return new TraceCapture(DeterminismTrace.attach(game, 0, auditRandom, directory), directory,
+                    previousRandom);
+        } catch (final IOException | RuntimeException ex) {
+            MyRandom.setRandom(previousRandom);
+            if (directory != null) {
+                try {
+                    deleteTree(directory);
+                } catch (final IOException ignored) {
+                    // Preserve the original trace setup failure.
+                }
+            }
+            throw ex;
+        }
+    }
+
+    private static TraceEvidence targetTrace(final List<String> records) {
+        final List<String> requestRecords = records.stream()
+                .filter(record -> record.startsWith("DECISION_TRACE_V2|REQUEST|"))
+                .toList();
+        final List<String> resultRecords = records.stream()
+                .filter(record -> record.startsWith("DECISION_TRACE_V2|RESULT|"))
+                .toList();
+        assertEquals(requestRecords.size(), 1, "exactly one TARGET request must be traced");
+        assertEquals(resultRecords.size(), 1, "exactly one TARGET result must be traced");
+        final String[] requestFields = requestRecords.get(0).split("\\|", -1);
+        final String[] resultFields = resultRecords.get(0).split("\\|", -1);
+        assertEquals(requestFields[0], "DECISION_TRACE_V2");
+        assertEquals(requestFields[1], "REQUEST");
+        assertEquals(resultFields[0], "DECISION_TRACE_V2");
+        assertEquals(resultFields[1], "RESULT");
+        return new TraceEvidence(requestFields, resultFields);
+    }
+
+    private static void deleteTree(final Path root) throws IOException {
+        if (!Files.exists(root)) {
+            return;
+        }
+        try (var paths = Files.walk(root)) {
+            for (final Path path : paths.sorted(Comparator.reverseOrder()).toList()) {
+                Files.deleteIfExists(path);
+            }
+        }
+    }
+
     private static final class CountingTargetController extends PlayerControllerAi {
+        private int nativeCallbackCalls;
         private int chooseTargetsForCalls;
+        private int confirmTriggerCalls;
+        private Card nativeTarget;
+        private GameObject targetAtConfirmation;
+        private int resolverCalls;
 
         private CountingTargetController(final Game game, final Player player) {
             super(game, player, new LobbyPlayerAi(player.getName() + "-frl02k-c2a", null));
+        }
+
+        @Override
+        protected boolean invokeNativeTriggeredTarget(final SpellAbility underlying, final boolean mandatory) {
+            nativeCallbackCalls++;
+            final boolean result = super.invokeNativeTriggeredTarget(underlying, mandatory);
+            if (result && underlying.getTargets().size() == 1
+                    && underlying.getTargets().get(0) instanceof Card card) {
+                nativeTarget = card;
+            }
+            return result;
+        }
+
+        @Override
+        public boolean confirmTrigger(final WrappedAbility wrapper) {
+            confirmTriggerCalls++;
+            if (wrapper.getWrappedAbility().getTargets().size() == 1
+                    && wrapper.getWrappedAbility().getTargets().get(0) != null) {
+                targetAtConfirmation = wrapper.getWrappedAbility().getTargets().get(0);
+            }
+            return super.confirmTrigger(wrapper);
         }
 
         @Override
@@ -484,8 +842,95 @@ public class TriggeredTargetDecisionCoordinatorTest extends AITest {
             return true;
         }
 
+        private int getNativeCallbackCalls() {
+            return nativeCallbackCalls;
+        }
+
         private int getChooseTargetsForCalls() {
             return chooseTargetsForCalls;
+        }
+
+        private int getConfirmTriggerCalls() {
+            return confirmTriggerCalls;
+        }
+
+        private Card getNativeTarget() {
+            return nativeTarget;
+        }
+
+        private GameObject getTargetAtConfirmation() {
+            return targetAtConfirmation;
+        }
+
+        private int getResolverCalls() {
+            return resolverCalls;
+        }
+    }
+
+    private static final class TraceCapture implements AutoCloseable {
+        private final DeterminismTrace trace;
+        private final Path directory;
+        private final Random previousRandom;
+        private boolean finished;
+
+        private TraceCapture(final DeterminismTrace trace0, final Path directory0,
+                final Random previousRandom0) {
+            trace = trace0;
+            directory = directory0;
+            previousRandom = previousRandom0;
+        }
+
+        private List<String> finishAndReadDecisionTrace() throws IOException {
+            if (!finished) {
+                trace.finish();
+                finished = true;
+            }
+            final Path decisionTrace = directory.resolve("game-001.decision.trace");
+            return Files.exists(decisionTrace)
+                    ? Files.readAllLines(decisionTrace, StandardCharsets.UTF_8) : List.of();
+        }
+
+        @Override
+        public void close() throws Exception {
+            try {
+                if (!finished) {
+                    trace.finish();
+                    finished = true;
+                }
+            } finally {
+                deleteTree(directory);
+                MyRandom.setRandom(previousRandom);
+            }
+        }
+    }
+
+    private record TraceEvidence(String[] requestFields, String[] resultFields) {
+        private String requestDecisionType() {
+            return requestFields[6];
+        }
+
+        private String requestForced() {
+            return requestFields[9];
+        }
+
+        private String resultKind() {
+            return resultFields[3];
+        }
+
+        private String nativeCallbackCompleted() {
+            return resultFields[5];
+        }
+
+        private String mappingAttempted() {
+            return resultFields[6];
+        }
+
+        private String engineForcedBypass() {
+            return resultFields[8];
+        }
+
+        private boolean selectedCandidateIsListed() {
+            return requestFields[10].contains(resultFields[4]);
         }
     }
 
