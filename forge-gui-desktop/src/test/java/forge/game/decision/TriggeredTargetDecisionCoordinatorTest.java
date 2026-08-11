@@ -434,6 +434,75 @@ public class TriggeredTargetDecisionCoordinatorTest extends AITest {
     }
 
     @Test
+    public void nativeResultFalseSanitizesToMappingFailedWithoutExternalRoute() throws Exception {
+        final BloodFixture fixture = bloodFixture();
+
+        assertNativeMappingFailed(fixture, false, preparation -> {
+            assertTrue(fixture.ability().getTargets().isEmpty());
+            assertNotNull(preparation.getRequest());
+        });
+    }
+
+    @Test
+    public void nativeResultTrueWithZeroNewTargetsSanitizesToMappingFailed() throws Exception {
+        final BloodFixture fixture = bloodFixture();
+
+        assertNativeMappingFailed(fixture, true, preparation -> {
+            assertTrue(fixture.ability().getTargets().isEmpty());
+            assertNotNull(preparation.getRequest());
+        });
+    }
+
+    @Test
+    public void nativeResultTrueWithMultipleNewTargetsSanitizesToMappingFailed() throws Exception {
+        final BloodFixture fixture = bloodFixture();
+
+        assertNativeMappingFailed(fixture, true, preparation -> {
+            final List<LegalCandidate> candidates = targetCardCandidates(preparation.getRequest());
+            assertEquals(candidates.size(), 2);
+            assertTrue(fixture.ability().getTargets().add(candidates.get(0).getTarget()));
+            assertTrue(fixture.ability().getTargets().add(candidates.get(1).getTarget()));
+            assertEquals(fixture.ability().getTargets().size(), 2);
+        });
+    }
+
+    @Test
+    public void nativeResultTrueWithForeignTargetSanitizesToMappingFailed() throws Exception {
+        final BloodFixture fixture = bloodFixture();
+
+        assertNativeMappingFailed(fixture, true, preparation -> {
+            assertTrue(preparation.getRequest().getCandidates().stream()
+                    .noneMatch(candidate -> candidate.getTarget() == fixture.source()));
+            assertTrue(fixture.ability().getTargets().add(fixture.source()));
+            assertEquals(fixture.ability().getTargets().size(), 1);
+        });
+    }
+
+    @Test
+    public void nativeDuplicateTargetStateCoversUnconstructibleAmbiguousIdentityMapping() throws Exception {
+        final BloodFixture fixture = bloodFixture();
+
+        assertNativeMappingFailed(fixture, true, preparation -> {
+            final List<LegalCandidate> candidates = targetCardCandidates(preparation.getRequest());
+            assertEquals(candidates.size(), 2);
+            assertTrue(candidates.get(0).getTarget() != candidates.get(1).getTarget(),
+                    "exact Blood request candidates have distinct target identities");
+
+            // TargetDecisionProvider creates one immutable candidate per exact Blood target identity,
+            // and DecisionRequest copies that list. The public Forge API cannot inject two request
+            // candidates for one identity here, while Forge TargetChoices rejects a duplicate live
+            // identity. The nearest authoritative ambiguity is therefore the >1-new-target state,
+            // which must fail the exact-new-target count before identity mapping.
+            final GameObject duplicateTarget = candidates.get(0).getTarget();
+            assertTrue(fixture.ability().getTargets().add(duplicateTarget));
+            assertFalse(fixture.ability().getTargets().add(duplicateTarget),
+                    "Forge TargetChoices rejects duplicate target identity");
+            assertTrue(fixture.ability().getTargets().add(candidates.get(1).getTarget()));
+            assertEquals(fixture.ability().getTargets().size(), 2);
+        });
+    }
+
+    @Test
     public void externalBloodTargetAStaysAuthoritativeThroughConfirmationAndNoStackResolution() throws Exception {
         final BloodFixture fixture = bloodFixture();
         final CountingTargetController controller = installCountingController(
@@ -706,6 +775,39 @@ public class TriggeredTargetDecisionCoordinatorTest extends AITest {
         assertEquals(nativeController.getChooseTargetsForCalls(), 0,
                 "unsupported external ownership must not fall back to Forge AI");
         return exception;
+    }
+
+    private static void assertNativeMappingFailed(final BloodFixture fixture, final boolean nativeResult,
+            final Consumer<TriggeredTargetDecisionCoordinator.Preparation> nativeStateMutation) throws Exception {
+        try (TraceCapture trace = attachTrace(fixture.game())) {
+            final TriggeredTargetDecisionCoordinator coordinator = new TriggeredTargetDecisionCoordinator();
+            final TriggeredTargetDecisionCoordinator.Preparation preparation = coordinator.prepare(
+                    fixture.wrapper(), fixture.chooser(), new TargetDecisionProvider(), null);
+            assertEquals(preparation.getStatus(),
+                    TriggeredTargetDecisionCoordinator.PreparationStatus.NATIVE_WITH_TEACHER_CAPTURE,
+                    "native mapping failures must use the native-only teacher-capture preparation");
+            assertNotNull(preparation.getRequest());
+
+            nativeStateMutation.accept(preparation);
+            final TriggeredTargetIntegrityException exception = expectThrows(
+                    TriggeredTargetIntegrityException.class,
+                    () -> coordinator.completeNative(preparation, nativeResult));
+            assertEquals(exception.getReason(), "MAPPING_FAILED");
+
+            final TraceEvidence evidence = targetTrace(trace.finishAndReadDecisionTrace());
+            assertEquals(evidence.requestDecisionType(), "TARGET");
+            assertEquals(evidence.resultKind(), "MAPPING_FAILED");
+            assertEquals(evidence.nativeCallbackCompleted(), "true",
+                    "native mapping failure must not be recorded as external ownership");
+            assertEquals(evidence.mappingAttempted(), "true");
+            assertEquals(evidence.engineForcedBypass(), "false");
+        }
+    }
+
+    private static List<LegalCandidate> targetCardCandidates(final DecisionRequest request) {
+        return request.getCandidates().stream()
+                .filter(candidate -> candidate.getTargetKind() == TargetCandidateKind.TARGET_CARD)
+                .toList();
     }
 
     private static void assertPreparedRequest(final Supplier<DecisionRequest> requestSupplier,
