@@ -1,6 +1,7 @@
 package forge.game.decision;
 
 import forge.card.CardStateName;
+import forge.game.GameObject;
 import forge.game.ability.AbilityFactory;
 import forge.game.ability.ApiType;
 import forge.game.card.Card;
@@ -12,6 +13,7 @@ import forge.game.trigger.TriggerType;
 import forge.game.trigger.WrappedAbility;
 import forge.game.zone.ZoneType;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -21,8 +23,8 @@ import java.util.Set;
 /**
  * Stateless admission boundary for the narrow FRL-02K-C2A triggered-target slice.
  *
- * <p>Task 5 deliberately admits the exact Blood Operative profile without asking Forge for legal
- * candidates. Request generation and continuation orchestration remain deferred to the next task.</p>
+ * <p>Task 5 deliberately admits the exact Blood Operative profile. Task 6 owns request generation,
+ * external application, and native-result mapping without duplicating Forge's legality oracle.</p>
  */
 public final class TriggeredTargetDecisionCoordinator {
     private static final String BLOOD_OPERATIVE = "Blood Operative";
@@ -53,6 +55,7 @@ public final class TriggeredTargetDecisionCoordinator {
     }
 
     public enum PreparationStatus {
+        NATIVE,
         NATIVE_WITH_TEACHER_CAPTURE,
         NATIVE_UNSUPPORTED_TARGETED_TRIGGER,
         PREPARED,
@@ -66,19 +69,19 @@ public final class TriggeredTargetDecisionCoordinator {
     }
 
     /**
-     * Prepares the narrow boundary without invoking the provider, Forge AI, or the external resolver.
+     * Prepares the narrow boundary and routes one atomic target decision through the provider seam.
      *
      * <p>A wrapped ability supplies its trigger decider when this adapter is used by later routing.</p>
      */
     public Preparation prepare(final SpellAbility queuedAbility, final TargetDecisionProvider provider,
             final TargetDecisionProvider.Resolver resolver) {
-        return prepareInternal(queuedAbility, implicitChooser(queuedAbility), resolver);
+        return prepareInternal(queuedAbility, implicitChooser(queuedAbility), provider, resolver);
     }
 
     /** Four-argument compatibility overload used by the current RED tests and later controller routing. */
     public Preparation prepare(final SpellAbility queuedAbility, final Player chooser,
             final TargetDecisionProvider provider, final TargetDecisionProvider.Resolver resolver) {
-        return prepareInternal(queuedAbility, chooser, resolver);
+        return prepareInternal(queuedAbility, chooser, provider, resolver);
     }
 
     /** Thin adapter preserving the wrapped-ability call shape. */
@@ -87,13 +90,45 @@ public final class TriggeredTargetDecisionCoordinator {
         return prepare((SpellAbility) wrapper, chooser, provider, resolver);
     }
 
-    /**
-     * Completes the native placeholder without taking ownership of any continuation or target state.
-     * Task 6 supplies the orchestration; Task 5 preserves the native result unchanged.
-     */
+    /** Completes the native callback and maps its live result to the captured request. */
     public boolean completeNative(final Preparation preparation, final boolean nativeResult) {
-        Objects.requireNonNull(preparation, "preparation");
-        return nativeResult;
+        requireNativePreparation(preparation);
+        if (!nativeResult) {
+            preparation.traceHandle.recordMappingFailed();
+            throw mappingFailed();
+        }
+
+        final List<GameObject> afterTargets;
+        try {
+            afterTargets = List.copyOf(preparation.liveAbility.getTargets());
+        } catch (final RuntimeException ex) {
+            return failNativeMapping(preparation.traceHandle);
+        }
+        final List<GameObject> newTargets = new ArrayList<>();
+        for (final GameObject afterTarget : afterTargets) {
+            if (!containsByIdentity(preparation.beforeTargets, afterTarget)) {
+                newTargets.add(afterTarget);
+            }
+        }
+        if (newTargets.size() != 1) {
+            return failNativeMapping(preparation.traceHandle);
+        }
+
+        final GameObject mappedTarget = newTargets.get(0);
+        LegalCandidate mappedCandidate = null;
+        int matchingCandidates = 0;
+        for (final LegalCandidate candidate : preparation.request.getCandidates()) {
+            if (isTargetCardCandidate(candidate) && candidate.getTarget() == mappedTarget) {
+                mappedCandidate = candidate;
+                matchingCandidates++;
+            }
+        }
+        if (matchingCandidates != 1) {
+            return failNativeMapping(preparation.traceHandle);
+        }
+
+        preparation.traceHandle.recordNativeMappedResult(mappedCandidate);
+        return true;
     }
 
     /**
@@ -120,7 +155,7 @@ public final class TriggeredTargetDecisionCoordinator {
     }
 
     private static Preparation prepareInternal(final SpellAbility queuedAbility, final Player chooser,
-            final TargetDecisionProvider.Resolver resolver) {
+            final TargetDecisionProvider provider, final TargetDecisionProvider.Resolver resolver) {
         if (queuedAbility == null) {
             return Preparation.of(PreparationStatus.NO_STACK, "NO_STACK");
         }
@@ -131,14 +166,149 @@ public final class TriggeredTargetDecisionCoordinator {
         }
         if (admission.classification == Classification.ADMITTED) {
             rejectActiveContinuation();
-            return Preparation.of(resolver == null
-                    ? PreparationStatus.NATIVE_WITH_TEACHER_CAPTURE : PreparationStatus.PREPARED,
-                    admission.reason());
+
+            final WrappedAbility wrapper = (WrappedAbility) queuedAbility;
+            final SpellAbility liveAbility = wrapper.getWrappedAbility();
+            final TargetDecisionProvider.Generation generation = Objects.requireNonNull(provider, "provider")
+                    .generateTargetRequest(liveAbility, chooser, null);
+            if (generation == null) {
+                throw targetApplicationIncomplete();
+            }
+            if (generation.getStatus() == TargetDecisionProvider.Status.INVALID_TARGETING) {
+                return Preparation.of(resolver == null ? PreparationStatus.NATIVE : PreparationStatus.NO_STACK,
+                        TargetDecisionProvider.Status.INVALID_TARGETING.name());
+            }
+            if (generation.getStatus() != TargetDecisionProvider.Status.DECISION
+                    || generation.getRequest() == null) {
+                throw targetApplicationIncomplete();
+            }
+
+            final DecisionRequest request = generation.getRequest();
+            final List<GameObject> beforeTargets = List.copyOf(liveAbility.getTargets());
+            final DeterminismTrace.RequestHandle traceHandle = DeterminismTrace.recordRequest(
+                    liveAbility.getHostCard().getGame(), chooser.getId(), request, "TRIGGERED_TARGET", 0);
+            final Preparation preparation = Preparation.forRequest(
+                    resolver == null ? PreparationStatus.NATIVE_WITH_TEACHER_CAPTURE : PreparationStatus.PREPARED,
+                    admission.reason(), request, liveAbility, beforeTargets, traceHandle, resolver != null);
+            if (resolver == null) {
+                return preparation;
+            }
+            return prepareExternal(preparation, provider, resolver);
         }
         if (resolver != null) {
             throw unsupported(admission);
         }
         return Preparation.of(PreparationStatus.NATIVE_UNSUPPORTED_TARGETED_TRIGGER, admission.reason());
+    }
+
+    private static Preparation prepareExternal(final Preparation preparation,
+            final TargetDecisionProvider provider, final TargetDecisionProvider.Resolver resolver) {
+        final DecisionRequest request = preparation.request;
+        if (request.isForced()) {
+            if (request.getCandidates().size() != 1) {
+                throw targetApplicationIncomplete();
+            }
+            final LegalCandidate selected = request.getCandidates().get(0);
+            final TargetDecisionProvider.Generation applied = provider.apply(request, selected);
+            requireComplete(applied);
+            requireExactlyOneLiveTarget(preparation.liveAbility, selected);
+            preparation.traceHandle.recordEngineForced();
+            return preparation;
+        }
+
+        final LegalCandidate selected = resolver.resolve(request);
+        if (!isValidExternalCandidate(request, selected)) {
+            throw invalidExternalCandidate();
+        }
+
+        final TargetDecisionProvider.Generation applied;
+        try {
+            applied = provider.apply(request, selected);
+        } catch (final RuntimeException ex) {
+            throw invalidExternalCandidate();
+        }
+        requireComplete(applied);
+        requireExactlyOneLiveTarget(preparation.liveAbility, selected);
+        preparation.traceHandle.recordExternalChosenResult(selected);
+        return preparation;
+    }
+
+    private static boolean isValidExternalCandidate(final DecisionRequest request,
+            final LegalCandidate candidate) {
+        return candidate != null && request.getCandidates().contains(candidate)
+                && isTargetCardCandidate(candidate);
+    }
+
+    private static boolean isTargetCardCandidate(final LegalCandidate candidate) {
+        return candidate != null && candidate.getTargetKind() == TargetCandidateKind.TARGET_CARD
+                && candidate.getTarget() != null;
+    }
+
+    private static void requireComplete(final TargetDecisionProvider.Generation generation) {
+        if (generation == null || generation.getStatus() != TargetDecisionProvider.Status.COMPLETE) {
+            throw targetApplicationIncomplete();
+        }
+    }
+
+    private static void requireExactlyOneLiveTarget(final SpellAbility liveAbility,
+            final LegalCandidate selected) {
+        final List<GameObject> liveTargets = copyTargets(liveAbility);
+        final GameObject selectedTarget = selected.getTarget();
+        int matchingTargets = 0;
+        for (final GameObject liveTarget : liveTargets) {
+            if (liveTarget == selectedTarget) {
+                matchingTargets++;
+            }
+        }
+        if (selectedTarget == null || liveTargets.size() != 1 || matchingTargets != 1) {
+            throw targetApplicationIncomplete();
+        }
+    }
+
+    private static List<GameObject> copyTargets(final SpellAbility liveAbility) {
+        try {
+            return List.copyOf(liveAbility.getTargets());
+        } catch (final RuntimeException ex) {
+            throw targetApplicationIncomplete();
+        }
+    }
+
+    private static boolean containsByIdentity(final List<GameObject> targets, final GameObject target) {
+        for (final GameObject existing : targets) {
+            if (existing == target) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static void requireNativePreparation(final Preparation preparation) {
+        Objects.requireNonNull(preparation, "preparation");
+        if (preparation.status != PreparationStatus.NATIVE_WITH_TEACHER_CAPTURE
+                || preparation.request == null || preparation.liveAbility == null
+                || preparation.beforeTargets == null || preparation.traceHandle == null
+                || preparation.resolverOwned) {
+            throw new IllegalArgumentException("Preparation does not own a native target capture");
+        }
+    }
+
+    private static boolean failNativeMapping(final DeterminismTrace.RequestHandle traceHandle) {
+        traceHandle.recordMappingFailed();
+        throw mappingFailed();
+    }
+
+    private static TriggeredTargetIntegrityException invalidExternalCandidate() {
+        return new TriggeredTargetIntegrityException(
+                TriggeredTargetIntegrityException.Reason.INVALID_EXTERNAL_CANDIDATE);
+    }
+
+    private static TriggeredTargetIntegrityException targetApplicationIncomplete() {
+        return new TriggeredTargetIntegrityException(
+                TriggeredTargetIntegrityException.Reason.TARGET_APPLICATION_INCOMPLETE);
+    }
+
+    private static TriggeredTargetIntegrityException mappingFailed() {
+        return new TriggeredTargetIntegrityException(TriggeredTargetIntegrityException.Reason.MAPPING_FAILED);
     }
 
     private static Admission evaluate(final SpellAbility queuedAbility, final Player chooser) {
@@ -297,15 +467,33 @@ public final class TriggeredTargetDecisionCoordinator {
         private final PreparationStatus status;
         private final String reason;
         private final DecisionRequest request;
+        private final SpellAbility liveAbility;
+        private final List<GameObject> beforeTargets;
+        private final DeterminismTrace.RequestHandle traceHandle;
+        private final boolean resolverOwned;
 
-        private Preparation(final PreparationStatus status0, final String reason0) {
+        private Preparation(final PreparationStatus status0, final String reason0,
+                final DecisionRequest request0, final SpellAbility liveAbility0,
+                final List<GameObject> beforeTargets0, final DeterminismTrace.RequestHandle traceHandle0,
+                final boolean resolverOwned0) {
             status = status0;
             reason = reason0;
-            request = null;
+            request = request0;
+            liveAbility = liveAbility0;
+            beforeTargets = beforeTargets0;
+            traceHandle = traceHandle0;
+            resolverOwned = resolverOwned0;
         }
 
         private static Preparation of(final PreparationStatus status, final String reason) {
-            return new Preparation(status, reason);
+            return new Preparation(status, reason, null, null, null, null, false);
+        }
+
+        private static Preparation forRequest(final PreparationStatus status, final String reason,
+                final DecisionRequest request, final SpellAbility liveAbility,
+                final List<GameObject> beforeTargets, final DeterminismTrace.RequestHandle traceHandle,
+                final boolean resolverOwned) {
+            return new Preparation(status, reason, request, liveAbility, beforeTargets, traceHandle, resolverOwned);
         }
 
         public PreparationStatus getStatus() {
