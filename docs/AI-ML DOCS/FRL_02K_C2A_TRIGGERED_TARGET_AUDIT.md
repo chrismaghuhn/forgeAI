@@ -61,10 +61,13 @@ provider or global request counter.
 [BESTAETIGT] `TargetDecisionProvider.apply(request, candidate)` is the authoritative Forge legality/mutation/completion
 boundary. It requires a live `TARGET` request and a member candidate, rechecks current Forge legality, adds the
 selected object to the live `TargetChoices`, and generates the next request or `COMPLETE`. The coordinator does not
-duplicate legality or write a second target structure. A coordinator success therefore requires a `COMPLETE`
-generation and exactly one live target identity for this slice. For this admitted profile the initial target list is
-empty and the minimum is one, so an initial `COMPLETE` generation is impossible; if observed, it is an integrity
-failure rather than a native or external success.
+duplicate legality or write a second target structure. For an externally owned target, a successful
+`provider.apply(request, candidate)` must return a `COMPLETE` generation and leave exactly one live target identity
+for this slice. For this admitted profile the initial target list is empty and the minimum is one, so an initial
+`COMPLETE` generation is impossible; if observed on the admitted empty initial state, it is an integrity failure
+rather than an external success. Native ownership is separate: a native callback can succeed by mapping its
+post-callback identity to the immutable teacher request; it does not call `provider.apply` and does not require
+completion regeneration.
 
 The relevant source is `forge-game/src/main/java/forge/game/player/PlayerController.java`,
 `forge-game/src/main/java/forge/game/decision/TargetDecisionProvider.java`,
@@ -142,7 +145,7 @@ trigger. Only a `DECISION` generation enters `NATIVE_WITH_TEACHER_CAPTURE`: that
 teacher request/candidate view and the `List.copyOf` pre-target snapshot, records one `DECISION_TRACE_V2` request,
 and then invokes the existing native Forge-AI target adapter exactly once. `completeNative` compares the
 post-callback target list by object identity, requires exactly one newly added object, and maps that identity to
-exactly one target candidate from the captured request. A false native result or any ambiguous/missing identity
+exactly one target candidate from the captured request. A false native result or any missing identity
 mapping is `MAPPING_FAILED`; it is not converted into an external choice.
 
 For the admitted empty initial state, `INVALID_TARGETING` is the native no-stack result. It is returned as the
@@ -221,12 +224,12 @@ comparison.
 | Task 1 checkpoint | `[BESTAETIGT]` requested branch/worktree; only this audit document is untracked for the documentation correction; implementation HEAD `98b27893319`; base `3851fdf3825`; branch ahead 21 before this documentation commit | `git status --short --branch`, `git log --oneline --decorate -20`; current worktree `C:\forgeAI-triggered-target-c2a` |
 | Provider/API | `[BESTAETIGT] 32/32` | `TargetDecisionProviderTest` 27/27 + `FRL02KTriggeredTargetProviderAuditTest` 3/3 + `DecisionPublicApiReflectionTest` 2/2 in the retained JUnit reports |
 | Task 5 coordinator checkpoint | `[BESTAETIGT] 15/17` before Task 6; two request failures were explicitly deferred | Retained Task 5 gate outcome; the later correction/orchestration commits are `c2779afa449`, `9b5367dcea8`, and `0f85ab32582` |
-| Task 6 / Task 10 coordinator | `[BESTAETIGT] 28/28` | `TriggeredTargetDecisionCoordinatorTest`; includes native 0/1/many and five native mapping-failure tests: callback false, zero new targets, multiple new targets, foreign target, and duplicate/ambiguous authoritative identity mapping |
+| Task 6 / Task 10 coordinator | `[BESTAETIGT] 28/28` | `TriggeredTargetDecisionCoordinatorTest`; includes native 0/1/many and five native mapping-failure tests: callback false, zero new targets, multiple new targets, foreign target, and the duplicate-target setup that reaches the multiple-new-target guard. Forge rejects the duplicate live identity; this case does not construct an ambiguous identity mapping |
 | Task 6 focused gate | `[BESTAETIGT] 26/26` after Task 8; pre-Task 8 was 25/26 with one known validator RED | Completed post-Task 8 focused gate; no broad reactor/build result is inferred |
 | Task 8 validator/continuation | `[BESTAETIGT] 10/10` = V2 validator/trace 9/9 plus fresh-JVM continuation 1/1 | `DeterminismTraceV2Test` and `TriggeredTargetContinuationProcessTest`; exact child output is in section 5 |
 | Task 9 external ownership | `[BESTAETIGT] 6/6` | `FRL02KTriggeredTargetExternalOwnershipAuditTest`; `A_native=Runeclaw Bear`, `A_external=Llanowar Elves`; native adapter/resolver counts `1/0`, external adapter/resolver counts `0/1`; five adversarial `INVALID_EXTERNAL_CANDIDATE` cases: null, other request/provider, stale after zone change, foreign game, and live-state illegal |
 | Throwing-resolver focused gate | `[BESTAETIGT] 1/1` | `throwingResolverFailsClosedWithoutNativeFallbackOrMappingFailure`; `RuntimeException` is sanitized to `INVALID_EXTERNAL_CANDIDATE`, with no native fallback and no `MAPPING_FAILED` reclassification |
-| Combined coordinator/external focused gate | `[BESTAETIGT] 30/30` | Completed combined focused selection covering the corrected coordinator and external ownership gates; this is not a broad reactor/build result |
+| Focused evidence composition | `[BESTAETIGT]` coordinator 28/28; external class 7/7 | Separate focused evidence is external ownership 6/6 plus throwing-resolver 1/1. Current reports are `TEST-forge.game.decision.TriggeredTargetDecisionCoordinatorTest.xml` (28 tests) and `TEST-forge.view.FRL02KTriggeredTargetExternalOwnershipAuditTest.xml` (7 tests); no standalone 30/30 aggregate selector or report is claimed |
 | Retained C2/C2R audits | `[BESTAETIGT] 4/4` | `forge.ai.ability.FRL02KConfirmationAuditTest` retained JUnit report; the C2/C2R audit remains separate from the C2A production seam |
 | Retained configured Checkstyle | `[BESTAETIGT] clean (0 violations)` | Existing configured lifecycle evidence in `docs/AI-ML DOCS/FRL_02K_CONFIRMATION_AUDIT.md` and `docs/AI-ML DOCS/FRL_02K0_DETERMINISM_GATE_REPORT.md`; this is retained gate evidence, not a new Task 12 broad run |
 | Canonical reference workload | `[BESTAETIGT]` Izzet Guild Kit vs Dimir Guild Kit, 10 games, seed `20260810`; Izzet 3, Dimir 7 | Confirmed by existing output in `docs/AI-ML DOCS/FRL_02K_CONFIRMATION_AUDIT.md` and `docs/AI-ML DOCS/FRL_02K0_DETERMINISM_GATE_REPORT.md`; retained reference only, not a new C2A run |
