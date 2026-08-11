@@ -1,6 +1,7 @@
 # FRL-02K-C2A - Triggered TARGET Provider Seam Audit
 
-Status: C2A narrow production seam present; final broad validation is intentionally deferred to Task 12.
+Status: C2A narrow production seam present; Task 12 final validation completed with 714 passed tests, 0 failures,
+0 errors, and 6 configured network-stress skips in the broad reactor run.
 
 Audit date: 2026-08-12
 
@@ -10,13 +11,15 @@ Audit worktree: `C:\forgeAI-triggered-target-c2a`
 
 Branch: `frl/02k-c2a-triggered-target-provider-seam`
 
-Implementation HEAD before this documentation commit: `98b27893319` (`test: cover C2A native mapping failures`)
+Implementation HEAD at the start of Task 12 final verification: `7e014aff024fbbc9a6aa73f7204941ac2883ebcd`
+(`docs: correct FRL-02K-C2A audit evidence`)
 
 Base: `3851fdf3825` (`origin/master`, `FRL-02K-C2: audit triggered target ownership`)
 
-This is the Task 11 documentation checkpoint for the committed C2A seam. It documents the exact admitted Blood
-Operative ETB target shape and the measured native/external ownership boundary. It does not generalize triggered
-TARGET, add a CONFIRMATION boundary, or claim a broad reactor/build result before Task 12.
+This is the Task 12 final-verification documentation checkpoint for the committed C2A seam. It documents the exact
+admitted Blood Operative ETB target shape, the measured native/external ownership boundary, and the actual focused,
+broad, package, and configured-validation results. It does not generalize triggered TARGET or add a CONFIRMATION
+boundary.
 
 Evidence labels:
 
@@ -27,12 +30,11 @@ Evidence labels:
 
 ## 1. Checkpoint and decision
 
-[BESTAETIGT] During this correction, `git status --short --branch` reported only the requested audit document as
-untracked; no code, test, or other documentation path was dirty. Before this documentation commit, the current
-implementation branch was `frl/02k-c2a-triggered-target-provider-seam...origin/master [ahead 21]` at
-`98b27893319`. The branch contains the
-C2A ownership, admission, orchestration, routing, V2 provenance, native lifecycle, fizzle, throwing-resolver
-sanitization, and native mapping-failure coverage commits. This file is the only Task 11 change.
+[BESTAETIGT] At the start of Task 12 final verification, `git status --short --branch` was clean. The current
+implementation branch was `frl/02k-c2a-triggered-target-provider-seam...origin/master [ahead 23]` at
+`7e014aff024fbbc9a6aa73f7204941ac2883ebcd`; `3851fdf3825` is `origin/master`. The branch contains the C2A
+ownership, admission, orchestration, routing, V2 provenance, native lifecycle, fizzle, throwing-resolver
+sanitization, and native mapping-failure coverage commits. Task 12 changed no production code.
 
 The decision is deliberately narrow:
 
@@ -221,19 +223,42 @@ comparison.
 
 | Gate / checkpoint | Completed outcome | Evidence and qualification |
 |---|---|---|
-| Task 1 checkpoint | `[BESTAETIGT]` requested branch/worktree; only this audit document is untracked for the documentation correction; implementation HEAD `98b27893319`; base `3851fdf3825`; branch ahead 21 before this documentation commit | `git status --short --branch`, `git log --oneline --decorate -20`; current worktree `C:\forgeAI-triggered-target-c2a` |
+| Task 12 starting checkpoint | `[BESTAETIGT]` clean requested branch/worktree; implementation HEAD `7e014aff024fbbc9a6aa73f7204941ac2883ebcd`; base `3851fdf3825`; branch ahead 23 | `git status --short --branch`, `git diff --name-status`, and `git rev-list --left-right --count origin/master...HEAD`; current worktree `C:\forgeAI-triggered-target-c2a` |
 | Provider/API | `[BESTAETIGT] 32/32` | `TargetDecisionProviderTest` 27/27 + `FRL02KTriggeredTargetProviderAuditTest` 3/3 + `DecisionPublicApiReflectionTest` 2/2 in the retained JUnit reports |
 | Task 5 coordinator checkpoint | `[BESTAETIGT] 15/17` before Task 6; two request failures were explicitly deferred | Retained Task 5 gate outcome; the later correction/orchestration commits are `c2779afa449`, `9b5367dcea8`, and `0f85ab32582` |
 | Task 6 / Task 10 coordinator | `[BESTAETIGT] 28/28` | `TriggeredTargetDecisionCoordinatorTest`; includes native 0/1/many and five native mapping-failure tests: callback false, zero new targets, multiple new targets, foreign target, and the duplicate-target setup that reaches the multiple-new-target guard. Forge rejects the duplicate live identity; this case does not construct an ambiguous identity mapping |
 | Task 6 focused gate | `[BESTAETIGT] 26/26` after Task 8; pre-Task 8 was 25/26 with one known validator RED | Completed post-Task 8 focused gate; no broad reactor/build result is inferred |
 | Task 8 validator/continuation | `[BESTAETIGT] 10/10` = V2 validator/trace 9/9 plus fresh-JVM continuation 1/1 | `DeterminismTraceV2Test` and `TriggeredTargetContinuationProcessTest`; exact child output is in section 5 |
-| Task 9 external ownership | `[BESTAETIGT] 6/6` | `FRL02KTriggeredTargetExternalOwnershipAuditTest`; `A_native=Runeclaw Bear`, `A_external=Llanowar Elves`; native adapter/resolver counts `1/0`, external adapter/resolver counts `0/1`; five adversarial `INVALID_EXTERNAL_CANDIDATE` cases: null, other request/provider, stale after zone change, foreign game, and live-state illegal |
+| Task 9 external ownership | `[BESTAETIGT] 7/7` in the fresh Task 12 A aggregate | `FRL02KTriggeredTargetExternalOwnershipAuditTest`; under deterministic seed `20260811`, the passing native/external ownership method asserts `A_native=Runeclaw Bear`, `A_external=Llanowar Elves`, native adapter/resolver counts `1/0`, and external adapter/resolver counts `0/1`; five adversarial `INVALID_EXTERNAL_CANDIDATE` cases plus the throwing-resolver case remain fail-closed. The XML report contains no stdout payload; these values are the assertions exercised by the passing test. |
 | Throwing-resolver focused gate | `[BESTAETIGT] 1/1` | `throwingResolverFailsClosedWithoutNativeFallbackOrMappingFailure`; `RuntimeException` is sanitized to `INVALID_EXTERNAL_CANDIDATE`, with no native fallback and no `MAPPING_FAILED` reclassification |
-| Focused evidence composition | `[BESTAETIGT]` coordinator 28/28; external class 7/7 | Separate focused evidence is external ownership 6/6 plus throwing-resolver 1/1. Current reports are `TEST-forge.game.decision.TriggeredTargetDecisionCoordinatorTest.xml` (28 tests) and `TEST-forge.view.FRL02KTriggeredTargetExternalOwnershipAuditTest.xml` (7 tests); no standalone 30/30 aggregate selector or report is claimed |
+| Task 12 A focused C2A suite | `[BESTAETIGT] 72/72` | Exact selector ran `TriggeredTargetDecisionCoordinatorTest` 28/28, `TriggeredTargetContinuationProcessTest` 1/1, `FRL02KTriggeredTargetExternalOwnershipAuditTest` 7/7, `DeterminismTraceV2Test` 9/9, and `TargetDecisionProviderTest` 27/27; 0 failures/errors/skips; Maven `BUILD SUCCESS`. Fresh aggregate: `forge-gui-desktop/target/surefire-reports/TEST-TestSuite.xml` at the A run. |
+| Task 12 B retained C2/C2R/API/diagnostics suite | `[BESTAETIGT] 17/17` | Exact selector ran ProviderAudit 3/3, OwnershipAudit 1/1, DecisionPublicApiReflection 2/2, and PriorityActionDiagnostics 11/11; 0 failures/errors/skips; Maven `BUILD SUCCESS`. |
 | Retained C2/C2R audits | `[BESTAETIGT] 4/4` | `forge.ai.ability.FRL02KConfirmationAuditTest` retained JUnit report; the C2/C2R audit remains separate from the C2A production seam |
-| Retained configured Checkstyle | `[BESTAETIGT] clean (0 violations)` | Existing configured lifecycle evidence in `docs/AI-ML DOCS/FRL_02K_CONFIRMATION_AUDIT.md` and `docs/AI-ML DOCS/FRL_02K0_DETERMINISM_GATE_REPORT.md`; this is retained gate evidence, not a new Task 12 broad run |
-| Canonical reference workload | `[BESTAETIGT]` Izzet Guild Kit vs Dimir Guild Kit, 10 games, seed `20260810`; Izzet 3, Dimir 7 | Confirmed by existing output in `docs/AI-ML DOCS/FRL_02K_CONFIRMATION_AUDIT.md` and `docs/AI-ML DOCS/FRL_02K0_DETERMINISM_GATE_REPORT.md`; retained reference only, not a new C2A run |
-| Task 12 broad validation | `[UNKLAERT] [BLOCKER]` unverified until Task 12 runs | No broad reactor/build/package pass is asserted here; Task 12 remains required before final validation. |
+| Task 12 C canonical/native ownership-difference workload | `[BESTAETIGT] 1/1` | Exact `FRL02KTriggeredTargetOwnershipAuditTest` selector passed with 0 failures/errors/skips; fresh individual report `TEST-forge.view.FRL02KTriggeredTargetOwnershipAuditTest.xml`. Its passing assertions require two canonical Blood occurrences, two `TARGET_STORED` records per occurrence, two accepted effects, one stored-A/B match, one stored-A/B difference, no ActionContinuation/RNG/state mutation, safe typed projections, and identical audit/control determinism trees. This C2 workload is native-only; no external resolver route is invoked. |
+| Task 12 D broad reactor tests | `[BESTAETIGT]` 720 total; 714 passed, 0 failures, 0 errors, 6 skips | Exact `mvn -pl forge-gui-desktop -am test` completed with Maven `BUILD SUCCESS`: forge-game 15/15, forge-ai 20/20, and forge-gui-desktop 679/685 plus 6 skips. Every skip is an explicitly gated `NetworkPlayIntegrationTest` stress test (`-Drun.stress.tests=true`), not a C2A failure. |
+| Task 12 E package build | `[BESTAETIGT]` package success | Exact `mvn -pl forge-gui-desktop -am -DskipTests package` completed with Maven `BUILD SUCCESS`; all six reactor modules succeeded and the desktop jar, `forge.exe`, and jar-with-dependencies were created. |
+| Retained configured Checkstyle | `[BESTAETIGT] clean (0 violations)` | Exact `mvn -pl forge-gui-desktop -am validate` completed with Maven `BUILD SUCCESS`; the configured `checkstyle-validation` execution reported 0 violations in all six reactor modules. `git diff --check` also exited 0 with no output. |
+| Canonical reference workload | `[BESTAETIGT]` Izzet Guild Kit vs Dimir Guild Kit, 10 games, seed `20260810`; Izzet 3, Dimir 7 | Retained reference remains documented in `docs/AI-ML DOCS/FRL_02K_CONFIRMATION_AUDIT.md` and `docs/AI-ML DOCS/FRL_02K0_DETERMINISM_GATE_REPORT.md`; Task 12 C additionally reran the native C2 audit around this workload. |
+
+### 6.1 Task 12 exact commands
+
+The final verification commands were run sequentially from `C:\forgeAI-triggered-target-c2a`:
+
+```text
+mvn -pl forge-gui-desktop -am '-Dtest=TriggeredTargetDecisionCoordinatorTest,TriggeredTargetContinuationProcessTest,FRL02KTriggeredTargetExternalOwnershipAuditTest,DeterminismTraceV2Test,TargetDecisionProviderTest' '-Dsurefire.failIfNoSpecifiedTests=false' test
+mvn -pl forge-gui-desktop -am '-Dtest=FRL02KTriggeredTargetProviderAuditTest,FRL02KTriggeredTargetOwnershipAuditTest,DecisionPublicApiReflectionTest,PriorityActionDiagnosticsTest' '-Dsurefire.failIfNoSpecifiedTests=false' test
+mvn -pl forge-gui-desktop -am '-Dtest=FRL02KTriggeredTargetOwnershipAuditTest' '-Dsurefire.failIfNoSpecifiedTests=false' test
+mvn -pl forge-gui-desktop -am test
+mvn -pl forge-gui-desktop -am -DskipTests package
+mvn -pl forge-gui-desktop -am validate
+git diff --check
+```
+
+The fresh C report was an individual JUnit/TestNG result with no stdout payload; the native C2 counts and
+ownership-difference conditions above are therefore recorded as the assertions exercised by its passing test. The
+fresh A aggregate likewise contained no stdout payload; its passing external-ownership method is the source of the
+native/external choice and callback-count evidence, and it never invokes the native Forge-AI callback on the external
+route.
 
 The canonical reference command retained by the existing audit is:
 
@@ -250,7 +275,8 @@ open and must not be inferred from the focused target gates:
 - Blood `CONFIRMATION` ownership;
 - global `CONFIRMATION` ownership;
 - any copied, granted, hidden, static, generated, alternate-chooser, multi-effect, or otherwise different Blood shape;
-- final broad reactor/build validation assigned to Task 12.
+- the six explicitly skipped `NetworkPlayIntegrationTest` stress cases unless a separate run enables
+  `-Drun.stress.tests=true`.
 
 Blood is not agent-complete. Its ETB target is supported only within the exact profile and only as `TARGET`; the
 later optional trigger decision remains outside this C2A boundary.
@@ -262,5 +288,6 @@ Blood Operative ETB TARGET: SUPPORTED (exact profile only)
 global triggered TARGET: OPEN
 Blood CONFIRMATION: OPEN
 global CONFIRMATION: OPEN
-FRL_02K_C2A_PARTIAL
+Task 12 broad reactor: VALIDATED (714 passed; 6 configured stress skips)
+FRL_02K_C2A_FINAL_VALIDATED
 ```
