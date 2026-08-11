@@ -360,7 +360,6 @@ public class TriggeredTargetDecisionCoordinatorTest extends AITest {
             assertFalse(nativeController.playTrigger(fixture.source(), fixture.wrapper(), true));
             assertEquals(nativeController.getNativeCallbackCalls(), 1,
                     "native Blood preparation must retain Forge's failed no-target callback");
-            assertEquals(nativeController.getResolverCalls(), 0);
             assertNull(nativeController.getTargetDecisionResolver());
             assertEquals(nativeController.getConfirmTriggerCalls(), 0);
             assertEquals(fixture.game().getStack().size(), stackSizeBefore,
@@ -385,7 +384,6 @@ public class TriggeredTargetDecisionCoordinatorTest extends AITest {
             assertTrue(nativeController.playTrigger(fixture.source(), fixture.wrapper(), true));
             assertEquals(nativeController.getNativeCallbackCalls(), 1,
                     "the native adapter must be called exactly once for a forced Blood target");
-            assertEquals(nativeController.getResolverCalls(), 0);
             assertNull(nativeController.getTargetDecisionResolver());
             assertEquals(nativeController.getConfirmTriggerCalls(), 1);
             assertSame(nativeController.getNativeTarget(), fixture.firstTarget());
@@ -415,7 +413,6 @@ public class TriggeredTargetDecisionCoordinatorTest extends AITest {
             assertTrue(nativeController.playTrigger(fixture.source(), fixture.wrapper(), true));
             assertEquals(nativeController.getNativeCallbackCalls(), 1,
                     "the native adapter must be called exactly once for a strategic Blood target");
-            assertEquals(nativeController.getResolverCalls(), 0);
             assertNull(nativeController.getTargetDecisionResolver());
             assertEquals(nativeController.getConfirmTriggerCalls(), 1);
             assertNotNull(nativeController.getNativeTarget());
@@ -809,7 +806,6 @@ public class TriggeredTargetDecisionCoordinatorTest extends AITest {
         private int confirmTriggerCalls;
         private Card nativeTarget;
         private GameObject targetAtConfirmation;
-        private int resolverCalls;
 
         private CountingTargetController(final Game game, final Player player) {
             super(game, player, new LobbyPlayerAi(player.getName() + "-frl02k-c2a", null));
@@ -860,10 +856,6 @@ public class TriggeredTargetDecisionCoordinatorTest extends AITest {
 
         private GameObject getTargetAtConfirmation() {
             return targetAtConfirmation;
-        }
-
-        private int getResolverCalls() {
-            return resolverCalls;
         }
     }
 
