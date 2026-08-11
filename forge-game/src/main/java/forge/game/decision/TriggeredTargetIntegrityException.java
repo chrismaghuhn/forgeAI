@@ -1,0 +1,38 @@
+package forge.game.decision;
+
+import java.util.Objects;
+
+/** Raised when external ownership cannot safely preserve triggered-target integrity. */
+public final class TriggeredTargetIntegrityException extends IllegalStateException {
+    public enum Status {
+        UNSUPPORTED_TARGETED_TRIGGER
+    }
+
+    public enum Reason {
+        UNSUPPORTED_TARGETED_TRIGGER,
+        UNSUPPORTED_PROFILE,
+        LIVE_EFFECT_MISMATCH,
+        NON_EMPTY_INITIAL_TARGETS,
+        INVALID_EXTERNAL_CANDIDATE,
+        TARGET_APPLICATION_INCOMPLETE,
+        MAPPING_FAILED,
+        UNSUPPORTED_ACTION_CONTINUATION
+    }
+
+    private final Status status;
+    private final Reason reason;
+
+    public TriggeredTargetIntegrityException(final Reason reason0) {
+        super(Objects.requireNonNull(reason0).name());
+        status = Status.UNSUPPORTED_TARGETED_TRIGGER;
+        reason = reason0;
+    }
+
+    public Status getStatus() {
+        return status;
+    }
+
+    public String getReason() {
+        return reason.name();
+    }
+}
