@@ -73,7 +73,7 @@ public class TriggeredTargetDecisionCoordinatorTest extends AITest {
         assertEquals(fixture.ability().getParam("Origin"), "Graveyard");
         assertEquals(fixture.ability().getParam("Destination"), "Exile");
         assertEquals(fixture.ability().getParam("ValidTgts"), "Card");
-        assertEquals(fixture.ability().getParam("TgtZone"), "Graveyard");
+        assertTrue(fixture.ability().getTargetRestrictions().getZone().contains(ZoneType.Graveyard));
         assertEquals(fixture.ability().getMinTargets(), 1);
         assertEquals(fixture.ability().getMaxTargets(), 1);
         assertFalse(fixture.ability().hasParam("Optional"));
@@ -358,7 +358,7 @@ public class TriggeredTargetDecisionCoordinatorTest extends AITest {
     private TriggeredFixture targetedProfileFixture() {
         final Game game = initAndCreateGame();
         final Player chooser = game.getPlayers().get(1);
-        final Card source = addCardToZone("Quill Slinger Boggart", chooser, ZoneType.Battlefield);
+        final Card source = addCardToZone("Quill-Slinger Boggart", chooser, ZoneType.Battlefield);
         final Trigger trigger = triggerFor(source, TriggerType.SpellCast, "TrigLoseLife");
         final SpellAbility ability = trigger.ensureAbility();
         ability.setActivatingPlayer(chooser);
