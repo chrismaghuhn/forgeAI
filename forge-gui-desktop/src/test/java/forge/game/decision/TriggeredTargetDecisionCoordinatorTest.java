@@ -107,6 +107,16 @@ public class TriggeredTargetDecisionCoordinatorTest extends AITest {
     }
 
     @Test
+    public void unknownOriginalTriggerSemanticParameterRejectsAdmission() {
+        final BloodFixture fixture = bloodFixture();
+        fixture.trigger().getOriginalMapParams().put("UnknownSemantic", "True");
+
+        assertEquals(fixture.trigger().getOriginalMapParams().get("UnknownSemantic"), "True");
+        assertFalse(fixture.trigger().getMapParams().containsKey("UnknownSemantic"));
+        assertUnsupportedTargeted(fixture, "UNSUPPORTED_PROFILE");
+    }
+
+    @Test
     public void liveChangeZoneMismatchRejectsStaticHit() {
         final BloodFixture fixture = bloodFixture();
         fixture.ability().setApi(ApiType.GainLife);
