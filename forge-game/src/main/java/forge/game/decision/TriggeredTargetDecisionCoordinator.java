@@ -216,7 +216,12 @@ public final class TriggeredTargetDecisionCoordinator {
             return preparation;
         }
 
-        final LegalCandidate selected = resolver.resolve(request);
+        final LegalCandidate selected;
+        try {
+            selected = resolver.resolve(request);
+        } catch (final RuntimeException ex) {
+            throw invalidExternalCandidate();
+        }
         if (!isValidExternalCandidate(request, selected)) {
             throw invalidExternalCandidate();
         }

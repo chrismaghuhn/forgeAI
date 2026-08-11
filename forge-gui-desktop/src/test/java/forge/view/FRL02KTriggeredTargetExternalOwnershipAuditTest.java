@@ -238,6 +238,39 @@ public class FRL02KTriggeredTargetExternalOwnershipAuditTest extends AITest {
         }
     }
 
+    @Test
+    public void throwingResolverFailsClosedWithoutNativeFallbackOrMappingFailure() throws Exception {
+        final BloodRun run = openBloodRun("frl02k-c2a-throwing-resolver-");
+        try {
+            assertBloodFixture(run.fixture());
+            final AuditedTargetController controller = installController(run.fixture());
+            controller.setTargetDecisionResolver(request -> {
+                controller.incrementResolverCalls();
+                throw new IllegalStateException("resolver-private-details");
+            });
+            final int stackBefore = run.fixture().game().getStack().size();
+
+            final TriggeredTargetIntegrityException exception = expectThrows(
+                    TriggeredTargetIntegrityException.class,
+                    () -> controller.playTrigger(run.fixture().source(), run.fixture().wrapper(), true));
+
+            assertEquals(exception.getReason(), "INVALID_EXTERNAL_CANDIDATE");
+            assertEquals(controller.resolverCalls(), 1);
+            assertEquals(controller.nativeCallbackCount(), 0,
+                    "throwing external ownership must not fall back to the native callback");
+            assertEquals(run.fixture().game().getStack().size(), stackBefore,
+                    "throwing external ownership must not push the trigger");
+
+            final TraceEvidence trace = readTrace(run.finishAndReadDecisionTrace());
+            assertEquals(trace.requestCount(), 1);
+            assertEquals(trace.resultKind(), "TRACE_INCOMPLETE");
+            assertFalse(trace.hasMappingFailedProvenance(),
+                    "throwing external ownership must not be mislabeled as native mapping failure");
+        } finally {
+            run.close();
+        }
+    }
+
     private BloodRun openBloodRun(final String directoryPrefix) throws Exception {
         final Random previousRandom = MyRandom.getRandom();
         final DeterminismAuditRandom auditRandom = new DeterminismAuditRandom(DETERMINISTIC_SEED);
