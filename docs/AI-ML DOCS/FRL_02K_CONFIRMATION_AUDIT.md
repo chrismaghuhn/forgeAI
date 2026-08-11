@@ -2326,6 +2326,35 @@ runtime replay remains a coverage limitation.
 [WIDERLEGT] Target selection does not occur in `TriggerHandler` construction, in `MagicStack.add`, or at
 resolution. Those stages construct, validate, lock, and consume the existing target choices respectively.
 
+### 29.4.1 Native 0-target engine disposition
+
+[BESTAETIGT] A focused native fixture closes the engine-side 0-target question; this is separate from the
+provider's `INVALID_TARGETING` status. With a real `Blood Operative` on the battlefield and an empty Graveyard,
+the underlying native triggered `SpellAbility` has a mandatory one-card target but zero legal candidates. The
+native path is:
+
+```text
+SpellAbilityAi.doTrigger(sa, mandatory=true)
+  -> TargetRestrictions.getNumCandidates(sa) == 0
+  -> return sa.isTargetNumberValid() == false   (minimum target count = 1)
+  -> PlayerControllerAi.prepareSingleSa(...) == false
+  -> PlayerControllerAi.playTrigger(...) does not call ComputerUtil.playNoStack(...)
+```
+
+For a queued non-static trigger, `PlayerControllerAi.orderAndPlaySimultaneousSa` has the same guard:
+`ComputerUtil.playStack(...)` is called only when `prepareSingleSa(...)` returns `true`. The native fixture
+asserts `playTrigger(...) == false`, unchanged stack size, and no stored target. Therefore:
+
+```text
+0 legal required targets
+  -> TARGET preparation fails
+  -> trigger is not pushed onto the stack
+  -> engine legality outcome, not unsupported-policy failure
+```
+
+This is the disposition that a future C2A external path must mirror when the provider returns
+`INVALID_TARGETING`.
+
 ### 29.5 Exact origin and owner of target A
 
 [BESTAETIGT] For the canonical AI workload, target A is first created at
@@ -2370,7 +2399,7 @@ to an external policy.
 `DecisionType` or a trigger-specific candidate kind. `TargetDecisionProvider.generateTargetRequest` accepts a
 targeting ability, uses Forge's candidate and MustTarget APIs, applies candidates through the normal
 `TargetChoices.add`, and supports `continuation == null` explicitly. `TargetCandidateKind.TARGET_CARD` and the
-existing semantic key convention are sufficient for Graveyard cards.
+existing request-local candidate-correlation key convention are sufficient for Graveyard cards.
 
 The C2 provider test verified 0/1/many candidates, exact `CardUtil` candidate completeness, forced-one behavior,
 null continuation context, state/RNG neutrality, and a face-down candidate with an empty visible name.
@@ -2401,10 +2430,11 @@ was added here.
 ### 29.9 Teacher mapping feasibility
 
 [STARKES INDIZ] A future teacher map is architecturally possible: run the provider's complete legal candidate
-enumeration before mutation, compute the same deterministic target semantic key, and map the native Forge AI card
-A to exactly one `TARGET_CARD` candidate. The mapping can be done without a second AI call, target replay, RNG,
-or target mutation. The current native AI target is a policy trace, not evidence that an external policy already
-owns A; C2 adds no BC data or training implementation.
+enumeration before mutation, compute the same deterministic request-local candidate-correlation key, and map the
+native Forge AI card A to exactly one `TARGET_CARD` candidate. That key is audit/runtime entity correlation only;
+it is not a cross-run policy or training identity. The mapping can be done without a second AI call, target replay,
+RNG, or target mutation. The current native AI target is a policy trace, not evidence that an external policy
+already owns A; C2 adds no BC data or training implementation.
 
 ### 29.10 External ownership seam
 
@@ -2432,10 +2462,13 @@ therefore does not collapse target selection into confirmation or duplicate a ta
 provider.
 
 The current public `TargetDecisionContext` does not itself expose a stack-history relation. The selected card is
-visible in Forge's stack-time state and is recorded by the opt-in C2 audit, but no production Observation/History
-event was added. The current disposition is `TARGET_HISTORY_EVENT_REQUIRED` before an external later confirmation
-can depend on a generic public history contract; a minimal future confirmation context should not duplicate target
-identity if the selected target is already public through that contract.
+visible in Forge's stack-time state and is recorded by the opt-in C2 audit, but no ObservationEncoder-/History-
+contract audit was performed and no production Observation/History event was added. C2 therefore establishes
+`TARGET_VISIBILITY_AT_CONFIRMATION_UNPROVEN`, not `TARGET_HISTORY_EVENT_REQUIRED`. C2A must first verify whether
+the resolving trigger and its public stored target are already available in the confirmation-time observation or
+stack projection. Only if that existing contract cannot express the relation is the disposition
+`OBSERVATION_OR_HISTORY_BRIDGE_REQUIRED`. A future confirmation context must not duplicate target identity when
+the selected target is already public through the existing contract.
 
 ### 29.12 Human/AI parity and stack locking
 
@@ -2456,13 +2489,29 @@ before stack insertion and preserve the existing fizzle behavior.
 |---:|---|
 | 0 | `INVALID_TARGETING`; no impossible policy request is exposed. |
 | 1 | `DECISION`, one `TARGET_CARD`, `isForced=true`; application completes through normal `TargetChoices`. |
-| 2+ | `DECISION`, `isForced=false`; every Forge-legal card is offered in deterministic semantic-key order. |
+| 2+ | `DECISION`, `isForced=false`; every Forge-legal card is offered in deterministic request-local candidate-correlation order. |
 
 For the multi-card fixture, provider candidate IDs equal the sorted IDs from `CardUtil.getValidCardsToTarget`.
 `TargetRestrictions`, `canTarget`, and MustTarget are retained as the legality sources. Public Graveyard cards
 are emitted as public typed projections. A face-down candidate may remain legal but its candidate name is empty;
 the C2 recorder emits `<HIDDEN>` and never raw `Card`, `CardLKI`, Java identity, localized prompt, or hidden name.
 This confirms the public-information boundary for this fixture, not a universal hidden-zone claim.
+
+The native engine disposition is independently confirmed by the focused fixture: zero mandatory legal targets
+fail target preparation and do not reach stack insertion. This must remain distinct from the provider's
+unsupported/environment status; `INVALID_TARGETING` is the provider-side representation of Forge's no-stack
+legality outcome for this mandatory targeted trigger.
+
+For C2A the three branches are therefore explicit:
+
+```text
+provider INVALID_TARGETING
+  -> mirror Forge's no-stack legality outcome
+provider forced single candidate
+  -> apply automatically; no policy call and no BC sample
+provider multiple candidates
+  -> issue the real DecisionType.TARGET request
+```
 
 ### 29.14 C2 lifecycle and A/B/C evidence
 
@@ -2482,6 +2531,10 @@ both accepted, A equaled C twice, and A/B diverged once. `EFFECT_ENTER` is the C
 `EFFECT_EXIT` observes the same card after its zone has changed to Exile. This preserves the C1R result and
 classifies B as evaluation-only.
 
+The diagnostic `target_order` value is a request-local/runtime entity correlation key of the form
+`TARGET_CARD|zone|cardId|gameTimestamp`. It is suitable for ordering and correlating rows within this audit;
+`(cardId, gameTimestamp)` is not a cross-run policy/training identity and is not a production semantic contract.
+
 ### 29.15 Exactly-once and observation/history contract
 
 [BESTAETIGT] The current native lifecycle has one authoritative game target A, one later may decision, and one
@@ -2494,12 +2547,13 @@ The minimum future public bridge is:
 ```text
 CURRENT_OBSERVATION: source, decider, public legal candidates, selected public stack target
 STACK_PUBLIC_STATE: the triggered stack item and its stored TargetChoices projection
-PUBLIC_HISTORY_EVENT: optional occurrence relation for a later confirmation request
+PUBLIC_HISTORY_EVENT: conditional occurrence relation only if observation/stack projection cannot expose A
 DECISION_LOCAL_CONTEXT: target group/min/max and null continuation
 ENGINE_ONLY: raw Card/CardLKI references and the diagnostic scope map
 ```
 
-No ObservationEncoder or production HistoryEvent was changed in C2.
+No ObservationEncoder or production HistoryEvent was changed in C2. The history bridge remains conditional on
+the unperformed confirmation-time visibility audit; C2 does not require a new `HistoryEvent`.
 
 ### 29.16 Required target ownership matrix
 
@@ -2533,11 +2587,12 @@ Final compatibility: `TARGET_PROVIDER_COMPATIBLE_WITH_SMALL_EXTENSION`.
 
 ### 29.18 Regression, neutrality, and zero-unsupported impact
 
-[BESTAETIGT] The baseline reactor run before C2 changes passed `643` tests, `0` failures, `0` errors, and `6`
-existing skips. The focused C2/regression run passed `54` tests, `0` failures, `0` errors, and `0` skips. The
-post-change full reactor run passed `646` tests, `0` failures, `0` errors, and `6` existing skips. The focused
-C2 lifecycle test passed its fresh-JVM audit-on/audit-off ten-game workload; the provider audit passed its two
-tests. C2's audit-on and audit-off determinism trace trees matched, every C2 row reported
+[BESTAETIGT] The baseline reactor run before C2 changes was `643 run = 637 passed + 6` existing skips, with
+`0` failures and `0` errors. The focused C2/C1/B1 regression selection after C2R was `37 run = 37 passed`, with
+`0` failures, `0` errors, and `0` skips. The post-C2R full-reactor run was `647 run = 641 passed + 6` existing skips, with `0` failures and `0` errors.
+The focused C2 lifecycle test passed its fresh-JVM audit-on/audit-off ten-game workload; the provider audit passed
+its three tests, including the native 0-target fixture. C2's audit-on and audit-off determinism trace trees matched,
+every C2 row reported
 `state_neutral=true`, `rng_delta=0`, and `action_continuation=false`.
 
 The inherited B1/C/C1 locks remain authoritative: `confirmTrigger=26`, Gelectrode admitted `17`, other no-cost
@@ -2566,7 +2621,8 @@ correctness fix was required to complete C2.
 ### 29.20 C2 verification verdict
 
 [BESTAETIGT] Target A origin, timing, current owner, B non-authority, C correlation, Human/AI parity,
-provider compatibility, 0/1/many behavior, null continuation, hidden-information boundary, state/RNG neutrality,
-and the next milestone are all established for the requested Blood slice.
+provider compatibility, native 0-target no-stack disposition, 0/1/many behavior, null continuation,
+hidden-information boundary, state/RNG neutrality, and the next milestone are all established for the requested
+Blood slice. Confirmation-time target visibility remains unproven; C2 does not establish a mandatory history event.
 
 **FRL-02K-C2 audit verdict: `FRL_02K_C2_PASS` (audit-only; Blood TARGET ownership remains blocked for production).**

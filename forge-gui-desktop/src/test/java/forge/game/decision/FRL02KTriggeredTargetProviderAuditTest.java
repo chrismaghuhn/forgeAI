@@ -7,6 +7,9 @@ import forge.game.card.Card;
 import forge.game.card.CardUtil;
 import forge.game.player.Player;
 import forge.game.spellability.SpellAbility;
+import forge.game.trigger.Trigger;
+import forge.game.trigger.TriggerType;
+import forge.game.trigger.WrappedAbility;
 import forge.game.zone.ZoneType;
 import org.testng.annotations.Test;
 
@@ -80,6 +83,29 @@ public class FRL02KTriggeredTargetProviderAuditTest extends AITest {
                 "a face-down target may remain a legal candidate but must not expose its name");
         assertNull(request.getTargetContext().getDecisionSequenceId());
         assertNull(request.getTargetContext().getSubdecisionIndex());
+    }
+
+    @Test
+    public void nativeBloodZeroTargetFailsPreparationBeforeStackInsertion() {
+        final Game game = initAndCreateGame();
+        final Player ai = game.getPlayers().get(1);
+        final Card blood = addCardToZone("Blood Operative", ai, ZoneType.Battlefield);
+        final Trigger trigger = blood.getTriggers().stream()
+                .filter(candidate -> candidate.getMode() == TriggerType.ChangesZone)
+                .filter(candidate -> "TrigChangeZone".equals(candidate.getParam("Execute")))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("Blood must expose its native ChangesZone trigger"));
+        final SpellAbility ability = trigger.ensureAbility();
+        ability.setActivatingPlayer(ai);
+        final WrappedAbility wrapper = new WrappedAbility(trigger, ability, null);
+        final int stackSizeBefore = game.getStack().size();
+
+        assertFalse(ai.getController().playTrigger(blood, wrapper, true),
+                "native AI target preparation must fail when Blood has no legal target");
+        assertEquals(game.getStack().size(), stackSizeBefore,
+                "a failed native mandatory target preparation must not push the trigger");
+        assertTrue(ability.getTargets().isEmpty(),
+                "zero legal targets must leave the underlying triggered ability untargeted");
     }
 
     private static SpellAbility bloodTargetAbility(final Card source, final Player chooser) {

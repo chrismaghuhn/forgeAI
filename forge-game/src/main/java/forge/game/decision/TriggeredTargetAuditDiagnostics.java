@@ -31,7 +31,7 @@ import java.util.stream.Collectors;
  * <p>The recorder observes the existing triggered-ability lifecycle. It never
  * generates candidates, chooses a target, changes a TargetChoices instance, or
  * changes game state. The output is intentionally limited to typed public
- * projections and deterministic semantic keys.</p>
+ * projections and request-local runtime/entity correlation keys.</p>
  */
 public final class TriggeredTargetAuditDiagnostics {
     public static final String OUTPUT_PATH_PROPERTY = "forge.triggeredTarget.auditFile";
