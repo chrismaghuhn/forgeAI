@@ -23,9 +23,11 @@ DECISION_TRACE_V2 and DeterminismTrace APIs, PowerShell on Windows.
 ## Scope guard and file map
 
 The implementation starts from branch
-frl/02k-c2a-triggered-target-provider-seam at commit
-24006a3d67b (the approved design specification commit) in worktree
-C:\forgeAI-triggered-target-c2a.
+frl/02k-c2a-triggered-target-provider-seam at correction commit
+19ea8bd8a8884aece27e029820a03ecebe2c41be, whose parent is the implementation
+plan commit 5f221714f972f9a94ba0a46e079d8981b68b3acb and whose grandparent is
+the approved design specification commit 24006a3d67bcefb8197daba28ce7fd8ee942e1f9,
+in worktree C:\forgeAI-triggered-target-c2a.
 
 Files to create:
 
@@ -177,6 +179,7 @@ Files: none.
     git -C C:\forgeAI-triggered-target-c2a branch --show-current
     git -C C:\forgeAI-triggered-target-c2a rev-parse HEAD
     git -C C:\forgeAI-triggered-target-c2a rev-parse HEAD^
+    git -C C:\forgeAI-triggered-target-c2a rev-parse HEAD^^
     git -C C:\forgeAI-triggered-target-c2a rev-parse origin/master
     git -C C:\forgeAI-triggered-target-c2a merge-base HEAD origin/master
 
@@ -184,7 +187,8 @@ Files: none.
   3851fdf3825e394af82717508e34177f903c864d; primary status is empty.
   Expected C2A output: status is empty; the branch is
   frl/02k-c2a-triggered-target-provider-seam; HEAD is
-  5f221714f972f9a94ba0a46e079d8981b68b3acb; HEAD^ is
+  19ea8bd8a8884aece27e029820a03ecebe2c41be; HEAD^ is
+  5f221714f972f9a94ba0a46e079d8981b68b3acb; HEAD^^ is
   24006a3d67bcefb8197daba28ce7fd8ee942e1f9; and origin/master and
   merge-base are
   3851fdf3825e394af82717508e34177f903c864d.
