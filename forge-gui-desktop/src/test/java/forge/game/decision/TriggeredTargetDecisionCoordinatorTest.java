@@ -4,18 +4,22 @@ import forge.ai.AITest;
 import forge.ai.LobbyPlayerAi;
 import forge.ai.PlayerControllerAi;
 import forge.game.Game;
+import forge.game.ability.AbilityFactory;
 import forge.game.ability.ApiType;
 import forge.game.card.Card;
 import forge.game.card.CardFactory;
 import forge.game.player.Player;
 import forge.game.spellability.SpellAbility;
+import forge.game.spellability.TargetRestrictions;
 import forge.game.trigger.Trigger;
 import forge.game.trigger.TriggerType;
 import forge.game.trigger.WrappedAbility;
 import forge.game.zone.ZoneType;
 import org.testng.annotations.Test;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
@@ -43,6 +47,22 @@ public class TriggeredTargetDecisionCoordinatorTest extends AITest {
                 });
 
         assertEquals(preparation.getStatus().name(), "PREPARED");
+        assertEquals(normalizedOriginalTriggerProjection(fixture.trigger()), Map.of(
+                "Mode", "ChangesZone",
+                "Origin", "Any",
+                "Destination", "Battlefield",
+                "ValidCard", "Card.Self",
+                "OptionalDecider", "You",
+                "Execute", "TrigChangeZone"));
+        final Map<String, String> staticChangeZone =
+                AbilityFactory.getMapParams(fixture.source().getSVar("TrigChangeZone"));
+        assertEquals(staticChangeZoneSemanticProjection(staticChangeZone), Map.of(
+                "DB", "ChangeZone",
+                "Origin", "Graveyard",
+                "Destination", "Exile",
+                "ValidTgts", "Card"));
+        assertFalse(staticChangeZone.containsKey("Optional"));
+        assertFalse(staticChangeZone.containsKey("TargetingPlayer"));
         assertEquals(fixture.trigger().getMode(), TriggerType.ChangesZone);
         assertEquals(fixture.trigger().getParam("Origin"), "Any");
         assertEquals(fixture.trigger().getParam("Destination"), "Battlefield");
@@ -54,6 +74,8 @@ public class TriggeredTargetDecisionCoordinatorTest extends AITest {
         assertEquals(fixture.ability().getParam("Destination"), "Exile");
         assertEquals(fixture.ability().getParam("ValidTgts"), "Card");
         assertEquals(fixture.ability().getParam("TgtZone"), "Graveyard");
+        assertEquals(fixture.ability().getMinTargets(), 1);
+        assertEquals(fixture.ability().getMaxTargets(), 1);
         assertFalse(fixture.ability().hasParam("Optional"));
         assertTrue(fixture.ability().getTargets().isEmpty());
         assertEquals(fixture.wrapper().getDecider().getId(), fixture.chooser().getId());
@@ -90,6 +112,21 @@ public class TriggeredTargetDecisionCoordinatorTest extends AITest {
         fixture.ability().setApi(ApiType.GainLife);
 
         assertUnsupportedTargeted(fixture, "LIVE_EFFECT_MISMATCH");
+    }
+
+    @Test
+    public void liveTargetBoundsMismatchRejectsAdmission() {
+        final BloodFixture minMismatch = bloodFixture();
+        replaceLiveTargetBounds(minMismatch.ability(), "0", "1");
+        assertEquals(minMismatch.ability().getMinTargets(), 0);
+        assertEquals(minMismatch.ability().getMaxTargets(), 1);
+        assertUnsupportedTargeted(minMismatch, "LIVE_EFFECT_MISMATCH");
+
+        final BloodFixture maxMismatch = bloodFixture();
+        replaceLiveTargetBounds(maxMismatch.ability(), "1", "2");
+        assertEquals(maxMismatch.ability().getMinTargets(), 1);
+        assertEquals(maxMismatch.ability().getMaxTargets(), 2);
+        assertUnsupportedTargeted(maxMismatch, "LIVE_EFFECT_MISMATCH");
     }
 
     @Test
@@ -340,6 +377,34 @@ public class TriggeredTargetDecisionCoordinatorTest extends AITest {
                 .filter(candidate -> execute.equals(candidate.getParam("Execute")))
                 .findFirst()
                 .orElseThrow(() -> new AssertionError("expected trigger fixture is unavailable"));
+    }
+
+    private static Map<String, String> normalizedOriginalTriggerProjection(final Trigger trigger) {
+        final Map<String, String> original = trigger.getOriginalMapParams();
+        return Map.of(
+                "Mode", original.get("Mode"),
+                "Origin", original.get("Origin"),
+                "Destination", original.get("Destination"),
+                "ValidCard", original.get("ValidCard"),
+                "OptionalDecider", original.get("OptionalDecider"),
+                "Execute", original.get("Execute"));
+    }
+
+    private static Map<String, String> staticChangeZoneSemanticProjection(
+            final Map<String, String> staticChangeZone) {
+        return Map.of(
+                "DB", staticChangeZone.get("DB"),
+                "Origin", staticChangeZone.get("Origin"),
+                "Destination", staticChangeZone.get("Destination"),
+                "ValidTgts", staticChangeZone.get("ValidTgts"));
+    }
+
+    private static void replaceLiveTargetBounds(final SpellAbility ability,
+            final String minTargets, final String maxTargets) {
+        final Map<String, String> liveParams = new HashMap<>(ability.getMapParams());
+        liveParams.put("TargetMin", minTargets);
+        liveParams.put("TargetMax", maxTargets);
+        ability.setTargetRestrictions(new TargetRestrictions(liveParams));
     }
 
     private static BloodFixture withWrapper(final BloodFixture fixture, final WrappedAbility wrapper) {
