@@ -25,6 +25,7 @@ import forge.game.decision.DownstreamCallbackFamily;
 import forge.game.decision.MulliganDiagnostics;
 import forge.game.decision.PriorityActionDiagnostics;
 import forge.game.decision.TriggeredTargetAuditDiagnostics;
+import forge.game.decision.TriggeredTargetDecisionCoordinator;
 import forge.game.keyword.Keyword;
 import forge.game.keyword.KeywordInterface;
 import forge.game.mana.Mana;
@@ -63,6 +64,8 @@ import java.util.stream.Collectors;
 public class PlayerControllerAi extends PlayerController {
     private static final MulliganDiagnostics MULLIGAN_DIAGNOSTICS = MulliganDiagnostics.global();
     private final AiController brains;
+    private final TriggeredTargetDecisionCoordinator triggeredTargetDecisionCoordinator =
+            new TriggeredTargetDecisionCoordinator();
 
     private boolean pilotsNonAggroDeck = false;
 
@@ -1390,6 +1393,10 @@ public class PlayerControllerAi extends PlayerController {
         }
     }
 
+    protected boolean invokeNativeTriggeredTarget(final SpellAbility underlying, final boolean mandatory) {
+        return brains.doTrigger(underlying, mandatory);
+    }
+
     private boolean prepareSingleSa(final Card host, SpellAbility sa, boolean isMandatory) {
         if (sa.getApi() == ApiType.Charm) {
             if (!CharmEffect.makeChoices(sa)) {
@@ -1399,6 +1406,40 @@ public class PlayerControllerAi extends PlayerController {
                 return true;
             }
             sa = sa.getSubAbility();
+        }
+        if (sa instanceof WrappedAbility wrapper) {
+            final TriggeredTargetDecisionCoordinator.Preparation preparation =
+                    triggeredTargetDecisionCoordinator.prepare(wrapper, wrapper.getDecider(),
+                            getTargetDecisionProvider(), getTargetDecisionResolver());
+            switch (preparation.getStatus()) {
+            case NO_STACK:
+                TriggeredTargetAuditDiagnostics.recordTargetPreparation(sa,
+                        "PlayerControllerAi.prepareSingleSa->TriggeredTargetDecisionCoordinator", false);
+                return false;
+            case PREPARED:
+                TriggeredTargetAuditDiagnostics.recordTargetPreparation(sa,
+                        "PlayerControllerAi.prepareSingleSa->TriggeredTargetDecisionCoordinator", true);
+                return true;
+            case NATIVE: {
+                final boolean result = invokeNativeTriggeredTarget(wrapper.getWrappedAbility(), isMandatory);
+                TriggeredTargetAuditDiagnostics.recordTargetPreparation(sa,
+                        "PlayerControllerAi.prepareSingleSa->PlayerControllerAi.invokeNativeTriggeredTarget", result);
+                return result;
+            }
+            case NATIVE_WITH_TEACHER_CAPTURE: {
+                final boolean nativeResult = invokeNativeTriggeredTarget(wrapper.getWrappedAbility(), isMandatory);
+                TriggeredTargetAuditDiagnostics.recordTargetPreparation(sa,
+                        "PlayerControllerAi.prepareSingleSa->PlayerControllerAi.invokeNativeTriggeredTarget",
+                        nativeResult);
+                return triggeredTargetDecisionCoordinator.completeNative(preparation, nativeResult);
+            }
+            case NOT_APPLICABLE:
+            case NATIVE_UNSUPPORTED_TARGETED_TRIGGER:
+                break;
+            default:
+                throw new IllegalStateException("Unhandled triggered target preparation status: "
+                        + preparation.getStatus());
+            }
         }
         if (sa.hasParam("TargetingPlayer")) {
             Player targetingPlayer = AbilityUtils.getDefinedPlayers(host, sa.getParam("TargetingPlayer"), sa).get(0);
