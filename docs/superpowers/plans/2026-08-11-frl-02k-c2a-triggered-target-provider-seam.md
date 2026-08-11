@@ -166,25 +166,41 @@ Files: none.
 - [ ] Verify the requested primary checkpoint and isolated worktree before
       touching implementation files.
 
+    $primaryStatus = @(git -C C:\forgeAI status --short)
+    if ($primaryStatus.Count -ne 0) { throw 'Primary C:\forgeAI worktree is not clean' }
+    git -C C:\forgeAI rev-parse HEAD
+    git -C C:\forgeAI rev-parse origin/master
+    git -C C:\forgeAI merge-base HEAD origin/master
+
     $status = @(git -C C:\forgeAI-triggered-target-c2a status --short)
     if ($status.Count -ne 0) { throw 'C2A worktree is not clean' }
+    git -C C:\forgeAI-triggered-target-c2a branch --show-current
     git -C C:\forgeAI-triggered-target-c2a rev-parse HEAD
+    git -C C:\forgeAI-triggered-target-c2a rev-parse HEAD^
     git -C C:\forgeAI-triggered-target-c2a rev-parse origin/master
     git -C C:\forgeAI-triggered-target-c2a merge-base HEAD origin/master
-    git -C C:\forgeAI-triggered-target-c2a branch --show-current
 
-  Expected output: HEAD, origin/master, and merge-base are
-  3851fdf3825e394af82717508e34177f903c864d; the branch is
-  frl/02k-c2a-triggered-target-provider-seam; status is empty.
+  Expected primary output: HEAD, origin/master, and merge-base are
+  3851fdf3825e394af82717508e34177f903c864d; primary status is empty.
+  Expected C2A output: status is empty; the branch is
+  frl/02k-c2a-triggered-target-provider-seam; HEAD is
+  5f221714f972f9a94ba0a46e079d8981b68b3acb; HEAD^ is
+  24006a3d67bcefb8197daba28ce7fd8ee942e1f9; and origin/master and
+  merge-base are
+  3851fdf3825e394af82717508e34177f903c864d.
 
 - [ ] Confirm the approved design commit and plan file are present without any
       production changes.
 
     git -C C:\forgeAI-triggered-target-c2a show --stat --oneline 24006a3d67b
     git -C C:\forgeAI-triggered-target-c2a diff --name-only 24006a3d67b..HEAD
+    git -C C:\forgeAI-triggered-target-c2a diff --check origin/master...HEAD
 
-  Expected output: the design commit is present and the second command is
-  empty before implementation starts.
+  Expected output: the design commit is present; the second command prints
+  exactly one path,
+  docs/superpowers/plans/2026-08-11-frl-02k-c2a-triggered-target-provider-seam.md;
+  and the ranged diff check prints no output and exits zero before
+  implementation starts.
 
 ## Task 2: Write RED tests for the public seams and trace validator
 
