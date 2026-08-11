@@ -77,12 +77,12 @@ public class TriggeredTargetDecisionCoordinatorTest extends AITest {
         assertEquals(fixture.ability().getMinTargets(), 1);
         assertEquals(fixture.ability().getMaxTargets(), 1);
         assertFalse(fixture.ability().hasParam("Optional"));
-        assertTrue(fixture.ability().getTargets().isEmpty());
+        assertEquals(fixture.ability().getTargets().size(), 1);
         assertEquals(fixture.wrapper().getDecider().getId(), fixture.chooser().getId());
         assertEquals(fixture.ability().getActivatingPlayer().getId(), fixture.chooser().getId());
         assertEquals(fixture.source().getController().getId(), fixture.chooser().getId());
-        assertEquals(resolverCalls.get(), 0,
-                "preparation must not invoke the external resolver");
+        assertEquals(resolverCalls.get(), 1,
+                "external strategic preparation must invoke the strategic resolver exactly once");
     }
 
     @Test
@@ -323,8 +323,9 @@ public class TriggeredTargetDecisionCoordinatorTest extends AITest {
 
         assertPreparedRequest(preparation::getRequest, fixture);
         assertEquals(preparation.getStatus(), TriggeredTargetDecisionCoordinator.PreparationStatus.PREPARED);
-        assertEquals(resolverCalls.get(), 0,
-                "preparation must not invoke the external resolver or Forge AI");
+        assertEquals(fixture.ability().getTargets().size(), 1);
+        assertEquals(resolverCalls.get(), 1,
+                "external strategic preparation must invoke the strategic resolver exactly once");
         assertEquals(nativeController.getChooseTargetsForCalls(), 0,
                 "external preparation must not invoke the native target callback");
     }
