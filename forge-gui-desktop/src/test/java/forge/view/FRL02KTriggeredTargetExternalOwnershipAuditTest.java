@@ -519,7 +519,7 @@ public class FRL02KTriggeredTargetExternalOwnershipAuditTest extends AITest {
     }
 
     @Test(timeOut = 5000)
-    public void cyclicAbilitySubParentChainRemainsNativeWithoutResolver() {
+    public void cyclicAbilitySubParentChainPreflightRemainsNativeWithoutResolver() {
         final Game game = initAndCreateGame();
         final Player chooser = game.getPlayers().get(1);
         final Card source = addCardToZone("Island", chooser, ZoneType.Battlefield);
@@ -528,14 +528,25 @@ public class FRL02KTriggeredTargetExternalOwnershipAuditTest extends AITest {
         first.setParent(second);
         second.setParent(first);
 
-        final TriggeredTargetDecisionCoordinator coordinator = new TriggeredTargetDecisionCoordinator();
-        coordinator.enforceExternalTargetBoundary(first, null);
-        final TriggeredTargetDecisionCoordinator.Preparation preparation = coordinator.prepare(
-                first, chooser, new TargetDecisionProvider(), null);
+        final PreflightOnlyTargetController controller = installPreflightController(game, chooser);
+        assertNull(controller.getTargetDecisionResolver());
+        final long providerRequestsBefore = providerRequestSequence(controller.getTargetDecisionProvider());
+        final int stackBefore = game.getStack().size();
 
-        assertEquals(preparation.getStatus(),
-                TriggeredTargetDecisionCoordinator.PreparationStatus.NATIVE_UNSUPPORTED_TARGETED_TRIGGER);
-        assertEquals(preparation.getReason(), "UNSUPPORTED_PROFILE");
+        controller.orderAndPlaySimultaneousSa(List.of(first));
+
+        assertEquals(providerRequestSequence(controller.getTargetDecisionProvider()) - providerRequestsBefore, 0L,
+                "native cyclic handling must not enter the target provider seam");
+        assertEquals(controller.nativeCallbackCount(), 0,
+                "native cyclic preflight must not invoke triggered target fallback");
+        assertEquals(controller.chooseTargetsForCalls(), 0,
+                "native cyclic preflight must not invoke chooser target fallback");
+        assertEquals(controller.chooseModeForAbilityCalls(), 0,
+                "native cyclic preflight must not invoke mode selection");
+        assertEquals(controller.orderCalls(), 1,
+                "native cyclic preflight must still reach the controller ordering hook");
+        assertEquals(game.getStack().size(), stackBefore,
+                "empty native ordering must not insert a stack item");
     }
 
     @Test(timeOut = 5000)
@@ -765,6 +776,13 @@ public class FRL02KTriggeredTargetExternalOwnershipAuditTest extends AITest {
         return controller;
     }
 
+    private static PreflightOnlyTargetController installPreflightController(final Game game,
+            final Player chooser) {
+        final PreflightOnlyTargetController controller = new PreflightOnlyTargetController(game, chooser);
+        chooser.dangerouslySetController(controller);
+        return controller;
+    }
+
     private static void assertBloodFixture(final BloodFixture fixture) {
         assertEquals(fixture.source().getName(), BLOOD_OPERATIVE);
         assertEquals(fixture.source().getCurrentStateName(), CardStateName.Original);
@@ -909,7 +927,7 @@ public class FRL02KTriggeredTargetExternalOwnershipAuditTest extends AITest {
         LIVE_STATE_ILLEGAL
     }
 
-    private static final class AuditedTargetController extends PlayerControllerAi {
+    private static class AuditedTargetController extends PlayerControllerAi {
         private int nativeCallbackCount;
         private int chooseTargetsForCalls;
         private int chooseModeForAbilityCalls;
@@ -955,15 +973,15 @@ public class FRL02KTriggeredTargetExternalOwnershipAuditTest extends AITest {
             return true;
         }
 
-        private int nativeCallbackCount() {
+        protected int nativeCallbackCount() {
             return nativeCallbackCount;
         }
 
-        private int chooseTargetsForCalls() {
+        protected int chooseTargetsForCalls() {
             return chooseTargetsForCalls;
         }
 
-        private int chooseModeForAbilityCalls() {
+        protected int chooseModeForAbilityCalls() {
             return chooseModeForAbilityCalls;
         }
 
@@ -981,6 +999,24 @@ public class FRL02KTriggeredTargetExternalOwnershipAuditTest extends AITest {
 
         private void incrementResolverCalls() {
             resolverCalls++;
+        }
+    }
+
+    private static final class PreflightOnlyTargetController extends AuditedTargetController {
+        private int orderCalls;
+
+        private PreflightOnlyTargetController(final Game game, final Player player) {
+            super(game, player);
+        }
+
+        @Override
+        public List<SpellAbility> orderSimultaneousSa(final List<SpellAbility> activePlayerSAs) {
+            orderCalls++;
+            return List.of();
+        }
+
+        private int orderCalls() {
+            return orderCalls;
         }
     }
 

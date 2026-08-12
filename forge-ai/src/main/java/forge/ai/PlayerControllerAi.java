@@ -1370,7 +1370,7 @@ public class PlayerControllerAi extends PlayerController {
         for (final SpellAbility sa : orderSimultaneousSa(activePlayerSAs)) {
             triggeredTargetDecisionCoordinator.enforceExternalTargetBoundary(sa,
                     resolver);
-            if (sa.isTrigger() && !sa.isCopied()) {
+            if (isTriggeredForC2aRouting(sa, resolver) && !sa.isCopied()) {
                 if (prepareSingleSa(sa.getHostCard(), sa, true)) {
                     ComputerUtil.playStack(sa, player, getGame());
                 }
@@ -1413,9 +1413,15 @@ public class PlayerControllerAi extends PlayerController {
         } else {
             // Coordinator admission performs the cycle-safe parent validation before this recursive trigger lookup.
             triggeredTargetDecisionCoordinator.enforceExternalTargetBoundary(root, resolver);
-            triggeredRoot = root.isTrigger();
+            triggeredRoot = isTriggeredForC2aRouting(root, resolver);
         }
         enforceTriggeredTargetBoundary(root, resolver, visited, triggeredRoot);
+    }
+
+    private static boolean isTriggeredForC2aRouting(final SpellAbility ability,
+            final TargetDecisionProvider.Resolver resolver) {
+        // Native routing already identifies wrapped triggers; avoid recursive parent lookup without external ownership.
+        return resolver != null ? ability.isTrigger() : ability instanceof WrappedAbility;
     }
 
     private void enforceTriggeredTargetBoundary(final SpellAbility current,

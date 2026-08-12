@@ -19,7 +19,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicInteger;
 
 /** Fresh-JVM proof that an active single-action continuation fails closed at the C2A boundary. */
 public final class TriggeredTargetContinuationChildMain {
@@ -49,7 +48,7 @@ public final class TriggeredTargetContinuationChildMain {
 
         System.out.println("reason=" + result.reason());
         System.out.println("provider_requests=" + result.providerRequests());
-        System.out.println("resolver_calls=" + result.resolverCalls());
+        System.out.println("resolver_present=" + result.resolverPresent());
         System.out.println("native_calls=" + result.nativeCalls());
     }
 
@@ -61,11 +60,8 @@ public final class TriggeredTargetContinuationChildMain {
                     fixture.game(), fixture.chooser());
             final TargetDecisionProvider provider = nativeController.getTargetDecisionProvider();
             final long providerRequestStart = providerRequestSequence(provider);
-            final AtomicInteger resolverCalls = new AtomicInteger();
-            nativeController.setTargetDecisionResolver(request -> {
-                resolverCalls.incrementAndGet();
-                return null;
-            });
+            require(nativeController.getTargetDecisionResolver() == null,
+                    "native continuation proof must run without an external resolver");
             String reason = null;
             int providerRequests = -1;
             try {
@@ -88,9 +84,8 @@ public final class TriggeredTargetContinuationChildMain {
                 require("UNSUPPORTED_ACTION_CONTINUATION".equals(reason),
                         "unexpected continuation reason: " + reason);
                 require(providerRequests == 0, "target provider generated a request");
-                require(resolverCalls.get() == 0, "resolver was invoked");
                 require(nativeCalls == 0, "native target callback was invoked");
-                return new ProofResult(reason, providerRequests, resolverCalls.get(), nativeCalls);
+                return new ProofResult(reason, providerRequests, false, nativeCalls);
             } finally {
                 PriorityActionDiagnostics.endAction();
             }
@@ -163,7 +158,7 @@ public final class TriggeredTargetContinuationChildMain {
         }
     }
 
-    private record ProofResult(String reason, int providerRequests, int resolverCalls, int nativeCalls) {
+    private record ProofResult(String reason, int providerRequests, boolean resolverPresent, int nativeCalls) {
     }
 
     private record BloodFixture(Game game, Player chooser, Player opponent, Card source,

@@ -18,11 +18,12 @@ public class TriggeredTargetContinuationProcessTest {
     private static final List<String> EXPECTED_OUTPUT = List.of(
             "reason=UNSUPPORTED_ACTION_CONTINUATION",
             "provider_requests=0",
-            "resolver_calls=0",
+            "resolver_present=false",
             "native_calls=0");
 
     @Test
-    public void freshJvmRejectsTriggeredTargetContinuationBeforeDownstreamCallbacks() throws Exception {
+    public void freshJvmRejectsTriggeredTargetContinuationBeforeDownstreamCallbacksWithNullResolver()
+            throws Exception {
         final Path temporaryDirectory = Files.createTempDirectory("frl02k-c2a-process-");
         final Path output = temporaryDirectory.resolve("child-output.txt");
         Process process = null;
