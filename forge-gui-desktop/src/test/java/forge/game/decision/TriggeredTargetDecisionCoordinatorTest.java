@@ -44,8 +44,11 @@ import static org.testng.Assert.assertTrue;
 import static org.testng.Assert.expectThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 
 public class TriggeredTargetDecisionCoordinatorTest extends AITest {
     @Test
@@ -342,6 +345,137 @@ public class TriggeredTargetDecisionCoordinatorTest extends AITest {
                 "external strategic preparation must invoke the strategic resolver exactly once");
         assertEquals(nativeController.getChooseTargetsForCalls(), 0,
                 "external preparation must not invoke the native target callback");
+    }
+
+    @Test
+    public void externalZeroTargetGenerationReturnsNoStackWithoutTeacherCaptureOrFallback() throws Exception {
+        final BloodFixture fixture = bloodFixtureWithTargetCount(0);
+        final TargetDecisionProvider provider = spy(new TargetDecisionProvider());
+        final CountingTargetController nativeController = installCountingController(
+                fixture.game(), fixture.chooser());
+        final AtomicInteger resolverCalls = new AtomicInteger();
+        final int stackSizeBefore = fixture.game().getStack().size();
+
+        try (TraceCapture trace = attachTrace(fixture.game())) {
+            final TriggeredTargetDecisionCoordinator.Preparation preparation =
+                    new TriggeredTargetDecisionCoordinator().prepare(
+                            fixture.wrapper(), fixture.chooser(), provider, request -> {
+                                resolverCalls.incrementAndGet();
+                                return null;
+                            });
+
+            assertEquals(preparation.getStatus(),
+                    TriggeredTargetDecisionCoordinator.PreparationStatus.NO_STACK);
+            assertEquals(preparation.getReason(), "INVALID_TARGETING");
+            assertNull(preparation.getRequest());
+            verify(provider, times(1)).generateTargetRequest(any(SpellAbility.class), any(Player.class),
+                    isNull(ActionContinuation.class));
+            assertEquals(resolverCalls.get(), 0,
+                    "provider INVALID_TARGETING must not invoke the external resolver");
+            assertEquals(nativeController.getNativeCallbackCalls(), 0,
+                    "external zero-target preparation must not fall back to native targeting");
+            assertEquals(nativeController.getChooseTargetsForCalls(), 0);
+            assertEquals(fixture.ability().getTargets().size(), 0);
+            assertEquals(fixture.game().getStack().size(), stackSizeBefore,
+                    "external zero-target preparation must not push a stack entry");
+            assertTrue(trace.finishAndReadDecisionTrace().isEmpty(),
+                    "INVALID_TARGETING must not create a teacher request or result capture");
+        }
+    }
+
+    @Test
+    public void externalForcedOneTargetUsesProviderCompletionWithoutResolverOrNativeFallback() throws Exception {
+        final BloodFixture fixture = bloodFixtureWithTargetCount(1);
+        final TargetDecisionProvider provider = spy(new TargetDecisionProvider());
+        final CountingTargetController nativeController = installCountingController(
+                fixture.game(), fixture.chooser());
+        final AtomicInteger resolverCalls = new AtomicInteger();
+        final int stackSizeBefore = fixture.game().getStack().size();
+
+        doAnswer(invocation -> {
+            final TargetDecisionProvider.Generation applied =
+                    (TargetDecisionProvider.Generation) invocation.callRealMethod();
+            assertEquals(applied.getStatus(), TargetDecisionProvider.Status.COMPLETE,
+                    "a forced external target must require provider completion");
+            return applied;
+        }).when(provider).apply(any(DecisionRequest.class), any(LegalCandidate.class));
+
+        try (TraceCapture trace = attachTrace(fixture.game())) {
+            final TriggeredTargetDecisionCoordinator.Preparation preparation =
+                    new TriggeredTargetDecisionCoordinator().prepare(
+                            fixture.wrapper(), fixture.chooser(), provider, request -> {
+                                resolverCalls.incrementAndGet();
+                                return null;
+                            });
+
+            assertEquals(preparation.getStatus(), TriggeredTargetDecisionCoordinator.PreparationStatus.PREPARED);
+            assertNotNull(preparation.getRequest());
+            assertTrue(preparation.getRequest().isForced(),
+                    "the request's forced flag is authoritative for the one-candidate route");
+            assertEquals(preparation.getRequest().getCandidates().size(), 1);
+            final LegalCandidate selected = preparation.getRequest().getCandidates().get(0);
+            assertEquals(fixture.ability().getTargets().size(), 1);
+            assertSame(fixture.ability().getTargets().get(0), selected.getTarget());
+            verify(provider, times(1)).apply(any(DecisionRequest.class), any(LegalCandidate.class));
+            assertEquals(resolverCalls.get(), 0,
+                    "forced external targeting must not invoke the strategic resolver");
+            assertEquals(nativeController.getNativeCallbackCalls(), 0,
+                    "forced external targeting must not fall back to the native callback");
+            assertEquals(nativeController.getChooseTargetsForCalls(), 0);
+            assertEquals(fixture.game().getStack().size(), stackSizeBefore,
+                    "coordinator preparation must not push a stack entry before normal routing");
+
+            final TraceEvidence evidence = targetTrace(trace.finishAndReadDecisionTrace());
+            assertEquals(evidence.requestForced(), "true");
+            assertEquals(evidence.resultKind(), "FORCED");
+            assertEquals(evidence.nativeCallbackCompleted(), "false");
+            assertEquals(evidence.mappingAttempted(), "false");
+            assertEquals(evidence.engineForcedBypass(), "true");
+            assertTrue(evidence.selectedCandidateIsListed());
+        }
+    }
+
+    @Test
+    public void externalStrategicProviderApplicationFailureIsSanitizedWithoutFallbackOrMappingFailure() throws Exception {
+        final BloodFixture fixture = bloodFixture();
+        final TargetDecisionProvider provider = spy(new TargetDecisionProvider());
+        final String privateReason = "provider-private-strategic-application-reason";
+        final CountingTargetController nativeController = installCountingController(
+                fixture.game(), fixture.chooser());
+        final AtomicInteger resolverCalls = new AtomicInteger();
+        final int stackSizeBefore = fixture.game().getStack().size();
+
+        doThrow(new UnsupportedTargetDecisionException(fixture.ability(), privateReason))
+                .when(provider)
+                .apply(any(DecisionRequest.class), any(LegalCandidate.class));
+
+        try (TraceCapture trace = attachTrace(fixture.game())) {
+            final TriggeredTargetIntegrityException exception = expectThrows(
+                    TriggeredTargetIntegrityException.class,
+                    () -> new TriggeredTargetDecisionCoordinator().prepare(
+                            fixture.wrapper(), fixture.chooser(), provider, request -> {
+                                resolverCalls.incrementAndGet();
+                                return firstCardCandidate(request);
+                            }));
+
+            assertEquals(exception.getReason(), "INVALID_EXTERNAL_CANDIDATE");
+            assertEquals(exception.getMessage(), "INVALID_EXTERNAL_CANDIDATE");
+            assertFalse(exception.getMessage().contains(fixture.source().getName()));
+            assertFalse(exception.getMessage().contains(privateReason));
+            verify(provider, times(1)).apply(any(DecisionRequest.class), any(LegalCandidate.class));
+            assertEquals(resolverCalls.get(), 1);
+            assertEquals(nativeController.getNativeCallbackCalls(), 0,
+                    "strategic provider application failure must not fall back to native targeting");
+            assertEquals(nativeController.getChooseTargetsForCalls(), 0);
+            assertEquals(fixture.game().getStack().size(), stackSizeBefore,
+                    "strategic provider application failure must not push a stack entry");
+
+            final TraceEvidence evidence = targetTrace(trace.finishAndReadDecisionTrace());
+            assertEquals(evidence.resultKind(), "TRACE_INCOMPLETE");
+            assertEquals(evidence.nativeCallbackCompleted(), "false");
+            assertEquals(evidence.mappingAttempted(), "false");
+            assertFalse(evidence.resultLineContains("MAPPING_FAILED"));
+        }
     }
 
     @Test
@@ -1108,6 +1242,10 @@ public class TriggeredTargetDecisionCoordinatorTest extends AITest {
 
         private boolean selectedCandidateIsListed() {
             return requestFields[10].contains(resultFields[4]);
+        }
+
+        private boolean resultLineContains(final String value) {
+            return String.join("|", resultFields).contains(value);
         }
     }
 
