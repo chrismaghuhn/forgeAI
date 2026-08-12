@@ -307,6 +307,38 @@ public class FRL02KTriggeredTargetExternalOwnershipAuditTest extends AITest {
                 "unsupported copied targeted triggers must not be inserted into the stack");
     }
 
+    @Test(timeOut = 5000)
+    public void ordinaryCopiedAbilityWithTargetedChildKeepsNativeOrderAndStackRoute() {
+        final OrdinaryCopiedChildFixture fixture = ordinaryCopiedChildFixture();
+        final AuditedTargetController controller = installController(fixture.game(), fixture.chooser());
+        controller.setTargetDecisionResolver(request -> {
+            controller.incrementResolverCalls();
+            return firstTargetCandidate(request);
+        });
+        final long providerRequestsBefore = providerRequestSequence(controller.getTargetDecisionProvider());
+        final int stackBefore = fixture.game().getStack().size();
+
+        controller.orderAndPlaySimultaneousSa(List.of(fixture.copiedRoot()));
+
+        assertTrue(fixture.copiedRoot().isCopied());
+        assertFalse(fixture.copiedRoot().isTrigger(),
+                "the ordinary copied ability must not be treated as a triggered root");
+        assertTrue(fixture.targetedChild().usesTargeting());
+        assertNull(fixture.targetedChild().getTrigger());
+        assertEquals(providerRequestSequence(controller.getTargetDecisionProvider()) - providerRequestsBefore, 0L,
+                "ordinary copied children must not enter the C2A provider seam");
+        assertEquals(controller.resolverCalls(), 0,
+                "ordinary copied children must not invoke the external resolver");
+        assertEquals(controller.nativeCallbackCount(), 0,
+                "ordinary copied children must retain the native non-trigger route");
+        assertEquals(controller.chooseTargetsForCalls(), 0,
+                "ordinary copied children must not invoke target-choice fallback");
+        assertEquals(controller.orderSimultaneousSaCalls(), 1,
+                "ordinary copied abilities must still reach native ordering");
+        assertEquals(fixture.game().getStack().size(), stackBefore + 1,
+                "ordinary copied abilities must retain native stack insertion");
+    }
+
     @Test
     public void nonWrappedTargetedTriggerIsRejectedBeforeControllerFallbackOrStackInsertion() {
         final BloodFixture fixture = bloodFixture();
@@ -643,6 +675,27 @@ public class FRL02KTriggeredTargetExternalOwnershipAuditTest extends AITest {
         targetedChild.setActivatingPlayer(chooser);
         ability.setAdditionalAbility("GenericTargetedChild", targetedChild);
         return new NonAbilityAdditionalChildFixture(game, chooser, wrapper, targetedChild);
+    }
+
+    private OrdinaryCopiedChildFixture ordinaryCopiedChildFixture() {
+        final Game game = initAndCreateGame();
+        final Player chooser = game.getPlayers().get(1);
+        final Player opponent = game.getPlayers().get(0);
+        final Card source = addCardToZone("Island", chooser, ZoneType.Battlefield);
+        addCardToZone("Runeclaw Bear", opponent, ZoneType.Battlefield);
+        final AbilityApiBased original = new AbilityApiBased(
+                ApiType.Draw, source, Cost.Zero, null, Map.of("NumCards", "1"));
+        final Map<String, String> targetParams = Map.of(
+                "ValidTgts", "Card",
+                "TargetMin", "1",
+                "TargetMax", "1");
+        final AbilitySub targetedChild = new AbilitySub(
+                ApiType.Draw, source, new TargetRestrictions(targetParams), Map.of("NumCards", "1"));
+        original.setSubAbility(targetedChild);
+        original.setActivatingPlayer(chooser);
+        final SpellAbility copiedRoot = CardFactory.copySpellAbilityAndPossiblyHost(
+                original, original, chooser);
+        return new OrdinaryCopiedChildFixture(game, chooser, copiedRoot, copiedRoot.getSubAbility());
     }
 
     private static WrappedAbility cyclicWrappedAbility(final BloodFixture base) {
@@ -987,6 +1040,10 @@ public class FRL02KTriggeredTargetExternalOwnershipAuditTest extends AITest {
             SpellAbility targetedChild) {
     }
 
+    private record OrdinaryCopiedChildFixture(Game game, Player chooser, SpellAbility copiedRoot,
+            SpellAbility targetedChild) {
+    }
+
     private static final class BloodRun implements AutoCloseable {
         private final BloodFixture fixture;
         private final DeterminismTrace trace;
@@ -1022,8 +1079,11 @@ public class FRL02KTriggeredTargetExternalOwnershipAuditTest extends AITest {
                     traceFinished = true;
                 }
             } finally {
-                deleteTree(traceDirectory);
-                MyRandom.setRandom(previousRandom);
+                try {
+                    deleteTree(traceDirectory);
+                } finally {
+                    MyRandom.setRandom(previousRandom);
+                }
             }
         }
     }

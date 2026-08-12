@@ -42,6 +42,10 @@ import static org.testng.Assert.assertNull;
 import static org.testng.Assert.assertSame;
 import static org.testng.Assert.assertTrue;
 import static org.testng.Assert.expectThrows;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.spy;
 
 public class TriggeredTargetDecisionCoordinatorTest extends AITest {
     @Test
@@ -338,6 +342,82 @@ public class TriggeredTargetDecisionCoordinatorTest extends AITest {
                 "external strategic preparation must invoke the strategic resolver exactly once");
         assertEquals(nativeController.getChooseTargetsForCalls(), 0,
                 "external preparation must not invoke the native target callback");
+    }
+
+    @Test
+    public void unsupportedProviderGenerationIsSanitizedWithoutFallbackOrMappingFailure() throws Exception {
+        final BloodFixture fixture = bloodFixture();
+        final TargetDecisionProvider provider = spy(new TargetDecisionProvider());
+        final String privateReason = "provider-private-generation-reason";
+        doThrow(new UnsupportedTargetDecisionException(fixture.ability(), privateReason))
+                .when(provider)
+                .generateTargetRequest(any(SpellAbility.class), any(Player.class),
+                        isNull(ActionContinuation.class));
+        final AtomicInteger resolverCalls = new AtomicInteger();
+        final CountingTargetController nativeController = installCountingController(
+                fixture.game(), fixture.chooser());
+        final int stackSizeBefore = fixture.game().getStack().size();
+
+        try (TraceCapture trace = attachTrace(fixture.game())) {
+            final TriggeredTargetIntegrityException exception = expectThrows(
+                    TriggeredTargetIntegrityException.class,
+                    () -> new TriggeredTargetDecisionCoordinator().prepare(
+                            fixture.wrapper(), fixture.chooser(), provider, request -> {
+                                resolverCalls.incrementAndGet();
+                                return request.getCandidates().get(0);
+                            }));
+
+            assertEquals(exception.getReason(), "TARGET_APPLICATION_INCOMPLETE");
+            assertEquals(exception.getMessage(), "TARGET_APPLICATION_INCOMPLETE");
+            assertFalse(exception.getMessage().contains(fixture.source().getName()));
+            assertFalse(exception.getMessage().contains(privateReason));
+            assertEquals(resolverCalls.get(), 0);
+            assertEquals(nativeController.getNativeCallbackCalls(), 0);
+            assertEquals(nativeController.getChooseTargetsForCalls(), 0);
+            assertEquals(fixture.game().getStack().size(), stackSizeBefore);
+
+            final List<String> records = trace.finishAndReadDecisionTrace();
+            assertTrue(records.stream().noneMatch(record -> record.contains("|MAPPING_FAILED|")));
+            assertTrue(records.stream().noneMatch(record -> record.startsWith("DECISION_TRACE_V2|REQUEST|")));
+        }
+    }
+
+    @Test
+    public void unsupportedForcedProviderApplicationIsSanitizedWithoutFallbackOrMappingFailure() throws Exception {
+        final BloodFixture fixture = bloodFixtureWithTargetCount(1);
+        final TargetDecisionProvider provider = spy(new TargetDecisionProvider());
+        final String privateReason = "provider-private-application-reason";
+        doThrow(new UnsupportedTargetDecisionException(fixture.ability(), privateReason))
+                .when(provider)
+                .apply(any(DecisionRequest.class), any(LegalCandidate.class));
+        final AtomicInteger resolverCalls = new AtomicInteger();
+        final CountingTargetController nativeController = installCountingController(
+                fixture.game(), fixture.chooser());
+        final int stackSizeBefore = fixture.game().getStack().size();
+
+        try (TraceCapture trace = attachTrace(fixture.game())) {
+            final TriggeredTargetIntegrityException exception = expectThrows(
+                    TriggeredTargetIntegrityException.class,
+                    () -> new TriggeredTargetDecisionCoordinator().prepare(
+                            fixture.wrapper(), fixture.chooser(), provider, request -> {
+                                resolverCalls.incrementAndGet();
+                                return request.getCandidates().get(0);
+                            }));
+
+            assertEquals(exception.getReason(), "TARGET_APPLICATION_INCOMPLETE");
+            assertEquals(exception.getMessage(), "TARGET_APPLICATION_INCOMPLETE");
+            assertFalse(exception.getMessage().contains(fixture.source().getName()));
+            assertFalse(exception.getMessage().contains(privateReason));
+            assertEquals(resolverCalls.get(), 0,
+                    "forced application must not invoke the strategic resolver");
+            assertEquals(nativeController.getNativeCallbackCalls(), 0);
+            assertEquals(nativeController.getChooseTargetsForCalls(), 0);
+            assertEquals(fixture.game().getStack().size(), stackSizeBefore);
+
+            final List<String> records = trace.finishAndReadDecisionTrace();
+            assertTrue(records.stream().anyMatch(record -> record.startsWith("DECISION_TRACE_V2|REQUEST|")));
+            assertTrue(records.stream().noneMatch(record -> record.contains("|MAPPING_FAILED|")));
+        }
     }
 
     @Test

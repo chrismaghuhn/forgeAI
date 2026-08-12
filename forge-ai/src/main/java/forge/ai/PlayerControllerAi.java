@@ -1407,7 +1407,15 @@ public class PlayerControllerAi extends PlayerController {
     private void enforceTriggeredTargetBoundary(final SpellAbility root,
             final TargetDecisionProvider.Resolver resolver) {
         final Set<SpellAbility> visited = Collections.newSetFromMap(new IdentityHashMap<>());
-        enforceTriggeredTargetBoundary(root, resolver, visited, false);
+        final boolean triggeredRoot;
+        if (root == null) {
+            triggeredRoot = false;
+        } else {
+            // Coordinator admission performs the cycle-safe parent validation before this recursive trigger lookup.
+            triggeredTargetDecisionCoordinator.enforceExternalTargetBoundary(root, resolver);
+            triggeredRoot = root.isTrigger();
+        }
+        enforceTriggeredTargetBoundary(root, resolver, visited, triggeredRoot);
     }
 
     private void enforceTriggeredTargetBoundary(final SpellAbility current,
@@ -1418,26 +1426,27 @@ public class PlayerControllerAi extends PlayerController {
         }
 
         triggeredTargetDecisionCoordinator.enforceExternalTargetBoundary(current, resolver, triggeredAncestor);
-        enforceTriggeredTargetChildren(current, resolver, visited);
+        enforceTriggeredTargetChildren(current, resolver, visited, triggeredAncestor);
         if (current instanceof WrappedAbility wrapper) {
             // WrappedAbility delegates most child edges to its live ability but not the additional single-ability map.
             // Traverse the delegate's edges without preflighting the admitted live ability as a separate node.
-            enforceTriggeredTargetChildren(wrapper.getWrappedAbility(), resolver, visited);
+            enforceTriggeredTargetChildren(wrapper.getWrappedAbility(), resolver, visited, triggeredAncestor);
         }
     }
 
     private void enforceTriggeredTargetChildren(final SpellAbility owner,
-            final TargetDecisionProvider.Resolver resolver, final Set<SpellAbility> visited) {
+            final TargetDecisionProvider.Resolver resolver, final Set<SpellAbility> visited,
+            final boolean triggeredAncestor) {
         if (owner == null) {
             return;
         }
-        enforceTriggeredTargetBoundary(owner.getSubAbility(), resolver, visited, true);
+        enforceTriggeredTargetBoundary(owner.getSubAbility(), resolver, visited, triggeredAncestor);
         for (final SpellAbility child : owner.getAdditionalAbilities().values()) {
-            enforceTriggeredTargetBoundary(child, resolver, visited, true);
+            enforceTriggeredTargetBoundary(child, resolver, visited, triggeredAncestor);
         }
         for (final List<AbilitySub> children : owner.getAdditionalAbilityLists().values()) {
             for (final AbilitySub child : children) {
-                enforceTriggeredTargetBoundary(child, resolver, visited, true);
+                enforceTriggeredTargetBoundary(child, resolver, visited, triggeredAncestor);
             }
         }
     }

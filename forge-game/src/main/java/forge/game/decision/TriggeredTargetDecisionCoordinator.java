@@ -194,8 +194,15 @@ public final class TriggeredTargetDecisionCoordinator {
 
             final WrappedAbility wrapper = (WrappedAbility) queuedAbility;
             final SpellAbility liveAbility = wrapper.getWrappedAbility();
-            final TargetDecisionProvider.Generation generation = Objects.requireNonNull(provider, "provider")
-                    .generateTargetRequest(liveAbility, chooser, null);
+            final TargetDecisionProvider.Generation generation;
+            try {
+                generation = Objects.requireNonNull(provider, "provider")
+                        .generateTargetRequest(liveAbility, chooser, null);
+            } catch (final TriggeredTargetIntegrityException ex) {
+                throw ex;
+            } catch (final RuntimeException ex) {
+                throw targetApplicationIncomplete();
+            }
             if (generation == null) {
                 throw targetApplicationIncomplete();
             }
@@ -234,7 +241,14 @@ public final class TriggeredTargetDecisionCoordinator {
                 throw targetApplicationIncomplete();
             }
             final LegalCandidate selected = request.getCandidates().get(0);
-            final TargetDecisionProvider.Generation applied = provider.apply(request, selected);
+            final TargetDecisionProvider.Generation applied;
+            try {
+                applied = provider.apply(request, selected);
+            } catch (final TriggeredTargetIntegrityException ex) {
+                throw ex;
+            } catch (final RuntimeException ex) {
+                throw targetApplicationIncomplete();
+            }
             requireComplete(applied);
             requireExactlyOneLiveTarget(preparation.liveAbility, selected);
             preparation.traceHandle.recordEngineForced();
