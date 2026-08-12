@@ -1,15 +1,16 @@
 # FRL-02K-C2A - Triggered TARGET Provider Seam Audit
 
-Status: `FRL_02K_C2A_FINAL_VALIDATED`. The current C2A-R verification ran against code HEAD
-`22ae43d7a2b2d4aa766a60ae38868b89334677a0` and passed the focused C2A selector 93/93 with 0 failures, 0 errors,
+Status: `FRL_02K_C2A_FINAL_VALIDATED`. The current C2A-R verification ran against code/test HEAD
+`8a3980f123b08f3b00d2dedcfde0eb79befc1b50` (`fix: drop cyclic AbilitySub from native order route`) and passed the focused C2A selector 93/93 with 0 failures, 0 errors,
 and 0 skips; the separate R2 API selector `TriggeredTargetIntegrityExceptionApiTest` 1/1; the exact retained/API/
 confirmation/ownership selector 21/21 (20/20 when the separate ownership audit is excluded); the canonical native
 ownership workload 1/1 with exit 0; and the broad reactor 742 total with 736 passed, 0 failures, 0 errors, and 6
-configured skips. The broad reactor ran in about 12:27: `forge-ai` 20/20, `forge-game` 16/16, and
+configured skips. The broad reactor exited 0 in 716 s (about 11:56): `forge-ai` 20/20, `forge-game` 16/16, and
 `forge-gui-desktop` 706 total with 700 passed and 6 skips. Package and validate/checkstyle results below are retained
-as historical evidence from the earlier verification anchor, not asserted as current at this code HEAD. The earlier
-84-test aggregate in the previous audit snapshot is historical only, not a current selector count. This R5 change
-updates only this audit document.
+as separately qualified evidence: package remains historical, while the post-8a validate/checkstyle
+implementation-check was run by the implementation task and passed with 0 Checkstyle violations; it was not rerun in
+this document-only update. The earlier 84-test aggregate in the previous audit snapshot is historical only, not a
+current selector count. This R5 change updates only this audit document.
 
 Audit date: 2026-08-12
 
@@ -26,8 +27,8 @@ Previous quality-review starting HEAD: `92384c6865d27c23df671de538b20feb1f58b2f0
 P2 follow-up starting HEAD before the retained tests: `b9b7e6da3dbaaca2a323795071d551c3e3097bf0`
 (`docs: record FRL-02K-C2A latest review evidence`); branch ahead count was 32 relative to `origin/master`.
 
-Current C2A-R verification HEAD before this audit-only update: `22ae43d7a2b2d4aa766a60ae38868b89334677a0`
-(`test: cover C2A triggered target order route`). The current code/test verification is complete before this
+Current C2A-R verification HEAD before this audit-only update: `8a3980f123b08f3b00d2dedcfde0eb79befc1b50`
+(`fix: drop cyclic AbilitySub from native order route`). The current code/test verification is complete before this
 document-only R5 commit; no production source or test file is changed by this document update.
 
 Base: `3851fdf3825` (`origin/master`, `FRL-02K-C2: audit triggered target ownership`)
@@ -68,10 +69,11 @@ global CONFIRMATION: not implemented
 
 The existing C2/C2R material remains evidence, not a claim that C2A is a universal target or confirmation adapter.
 
-[BESTAETIGT] R1 preserved the resolver-null native cycle path and corrected native C2A trigger routing: cyclic-parent
-fail-closed protection applies to external ownership, while resolver-null routing uses cycle-safe trigger
-classification. The malformed Forge cyclic graph itself is not claimed to be natively executable; the coverage is
-limited to C2A preflight and routing protection.
+[BESTAETIGT] The current route retains R1's resolver-active cyclic-parent fail-closed protection. Commit
+`8a3980f123b` adds the resolver-null production-order regression fix: an actual cyclic `AbilitySub` output is
+identified as unclassifiable after ordering and dropped before generic stack insertion. The malformed Forge cyclic
+graph itself is not claimed to be natively executable, and this no-stack safety disposition is not an external
+ownership transfer.
 
 [BESTAETIGT] R2 removed the coarse public `TriggeredTargetIntegrityException.Status` type, field, and getter. The
 `Reason` value is the sole machine-readable classification; the separate 1/1 API selector is recorded in the evidence
@@ -224,19 +226,23 @@ engine-forced `FORCED` provenance; many strategic candidates sanitize a provider
 
 ### 4.3 Final quality-review fail-closed hardening
 
-[BESTAETIGT] At current C2A-R verification HEAD `22ae43d7a2b2d4aa766a60ae38868b89334677a0`,
-`PlayerControllerAi.orderAndPlaySimultaneousSa` runs the triggered-target boundary traversal before
-`orderSimultaneousSa` regardless of resolver presence. The coordinator rejects a malformed cyclic parent chain with
-the sanitized `UNSUPPORTED_PROFILE` result before `getTrigger`/`isTrigger` introspection, ordering, native targeting,
-chooser targeting, provider generation, or stack insertion. Direct coordinator preparation and direct `playTrigger`
-use the same cycle gate. Ordinary unsupported or non-targeted resolver-null abilities remain on their native path.
+[BESTAETIGT] At current C2A-R verification HEAD `8a3980f123b`, a non-null controller resolver makes cyclic parent
+chains fail closed before ordering, trigger/parent introspection, provider generation, resolver/native/chooser
+fallback, or stack insertion. The boundary throws the sanitized `UNSUPPORTED_PROFILE` result; direct coordinator
+preparation and direct `playTrigger` use the same cycle gate. With `resolver == null`, the boundary does not throw and
+does not invoke the provider, resolver, native target callback, chooser, or mode selection for a cyclic ability.
+Ordering is reached, and the production `orderAndPlaySimultaneousSa` route drops the unclassifiable cyclic output
+before generic stack insertion.
 
-[BESTAETIGT] R4 adds a real production-route regression through
+[BESTAETIGT] R4's supported external production route remains covered through
 `PlayerControllerAi.orderAndPlaySimultaneousSa`: `externalOwnershipThroughOrderAndPlayUsesLiveTargetBeforeResolution`
 invokes the resolver once before stack insertion, keeps the native target callback at zero, places the selected target
 on the live underlying ability before resolution, resolves the queued trigger without resolver re-entry, and verifies
-the `DECISION_TRACE_V2` external `CHOSEN` result. This is route coverage for the exact supported profile, not evidence
-that a malformed Forge cyclic graph became natively executable.
+the `DECISION_TRACE_V2` external `CHOSEN` result. The separate 8a regression is named
+`cyclicAbilitySubOrderedOutputIsDroppedWithoutResolver`: it reaches ordering with an actual malformed cycle, keeps
+provider/resolver/native/chooser/mode callbacks at zero, and leaves the stack unchanged. This is a narrow malformed-
+graph no-stack safety disposition, not a safe substitute for target selection, not native execution, and not an
+external ownership transfer.
 
 [BESTAETIGT] The same boundary carries a `triggeredAncestor` context through generic child edges. A targeted
 non-`AbilitySub` additional child, including an `AbilityApiBased` child with `TargetRestrictions`, is rejected with
@@ -314,7 +320,7 @@ comparison.
 |---|---|---|
 | Previous quality-review starting checkpoint | `[BESTAETIGT]` clean requested branch/worktree; checkpoint HEAD `92384c6865d27c23df671de538b20feb1f58b2f0`; base `3851fdf3825`; branch ahead 28 | Historical checkpoint from the preceding quality review |
 | P2 follow-up starting checkpoint | `[BESTAETIGT]` clean HEAD `b9b7e6da3dbaaca2a323795071d551c3e3097bf0`; branch ahead 32 | `git status --short --branch`, `git rev-parse HEAD`, and `git rev-list --left-right --count origin/master...HEAD` |
-| Current C2A-R verification anchor | `[BESTAETIGT]` HEAD `22ae43d7a2b2d4aa766a60ae38868b89334677a0` | Current code/test verification started from the clean requested checkout; this R5 run changes only this audit document |
+| Current C2A-R verification anchor | `[BESTAETIGT]` code/test HEAD `8a3980f123b` | Current code/test verification includes the actual-cycle no-stack regression `cyclicAbilitySubOrderedOutputIsDroppedWithoutResolver`; this R5 run changes only this audit document |
 | Quality-review RED baseline | `[STARKES INDIZ]` historical prior baseline 20 total; 17 passed, 3 failed, 0 errors, 0 skips | Test-only RED run for the preceding review; its three failures were corrected before the prior latest review |
 | Latest-review RED/GREEN gate | `[STARKES INDIZ]` historical RED 50 total; 47 passed, 3 failed, 0 errors, 0 skips; GREEN 50/50 with 0 failures/errors/skips | Test-only RED/GREEN gate for the preceding review; not the current P2 follow-up selector |
 | P2 retained external orchestration tests | `[BESTAETIGT]` 3/3 | `TriggeredTargetDecisionCoordinatorTest`: external zero-target `NO_STACK`, forced one-target provider completion/engine-forced provenance, and strategic many-target provider-apply sanitization; no production code changed |
@@ -323,22 +329,22 @@ comparison.
 | Task 6 / Task 10 coordinator | `[STARKES INDIZ]` historical checkpoint 28/28 | `TriggeredTargetDecisionCoordinatorTest`; includes native 0/1/many and five native mapping-failure tests: callback false, zero new targets, multiple new targets, foreign target, and the duplicate-target setup that reaches the multiple-new-target guard. Forge rejects the duplicate live identity; this case does not construct an ambiguous identity mapping |
 | Task 6 focused gate | `[STARKES INDIZ]` historical checkpoint 26/26 after Task 8; pre-Task 8 was 25/26 with one known validator RED | Completed post-Task 8 focused gate; no broad reactor/build result is inferred |
 | Task 8 validator/continuation historical gate | `[STARKES INDIZ] 10/10` = V2 validator/trace 9/9 plus fresh-JVM continuation 1/1 | Historical Task 8 result; the current continuation coverage is included in A below and exact current child outputs are in section 5 |
-| External ownership and boundary regressions | `[BESTAETIGT] 22/22` | `FRL02KTriggeredTargetExternalOwnershipAuditTest`; includes native/external ownership, five invalid-candidate cases, throwing-resolver sanitization, R1 resolver-null cyclic-parent native preservation and routing correction, ordinary copied targeted-child native order/stack ownership, copied/non-wrapped/Charm/nested-child rejection, four additional-child routes (`TrueSubAbility`, `FalseSubAbility`, `FallbackAbility`, and a non-`Choices` additional list), direct preparation/`playTrigger` cycle rejection, the targeted non-`AbilitySub` child fixture, and the R4 production `orderAndPlaySimultaneousSa` route. All resolver/native/chooser/order/stack fallback counters remain zero on the fail-closed routes. |
+| External ownership and boundary regressions | `[BESTAETIGT] 22/22` | `FRL02KTriggeredTargetExternalOwnershipAuditTest`; includes native/external ownership, five invalid-candidate cases, throwing-resolver sanitization, resolver-active cyclic-parent fail-closed protection, the 8a actual-cycle `cyclicAbilitySubOrderedOutputIsDroppedWithoutResolver` no-stack regression after ordering, ordinary copied targeted-child native order/stack ownership, copied/non-wrapped/Charm/nested-child rejection, four additional-child routes (`TrueSubAbility`, `FalseSubAbility`, `FallbackAbility`, and a non-`Choices` additional list), direct preparation/`playTrigger` cycle rejection, the targeted non-`AbilitySub` child fixture, and the R4 production `orderAndPlaySimultaneousSa` route. All resolver/native/chooser/order/stack fallback counters remain zero on the fail-closed and actual-cycle routes. |
 | Throwing-resolver focused gate | `[BESTAETIGT] 1/1` | `throwingResolverFailsClosedWithoutNativeFallbackOrMappingFailure`; `RuntimeException` is sanitized to `INVALID_EXTERNAL_CANDIDATE`, with no native fallback and no `MAPPING_FAILED` reclassification |
-| Current focused C2A suite (A) | `[BESTAETIGT] 93/93` | At current C2A-R verification HEAD `22ae43d7a2b2d4aa766a60ae38868b89334677a0`, the exact selector ran `TriggeredTargetDecisionCoordinatorTest` 33/33, `TriggeredTargetContinuationProcessTest` 2/2, `FRL02KTriggeredTargetExternalOwnershipAuditTest` 22/22, `DeterminismTraceV2Test` 9/9, and `TargetDecisionProviderTest` 27/27; 0 failures, 0 errors, 0 skips. The focused report total is `93`, passed `93`, failed `0`, skipped `0`. |
+| Current focused C2A suite (A) | `[BESTAETIGT] 93/93` | At current C2A-R verification code/test HEAD `8a3980f123b`, the exact selector ran `TriggeredTargetDecisionCoordinatorTest` 33/33, `TriggeredTargetContinuationProcessTest` 2/2, `FRL02KTriggeredTargetExternalOwnershipAuditTest` 22/22, `DeterminismTraceV2Test` 9/9, and `TargetDecisionProviderTest` 27/27; 0 failures, 0 errors, 0 skips. The focused report total is `93`, passed `93`, failed `0`, skipped `0`, including the actual-cycle no-stack regression introduced by 8a. |
 | R2 integrity-exception API selector | `[BESTAETIGT] 1/1` | `TriggeredTargetIntegrityExceptionApiTest` verifies that the coarse `Status` type, field, and getter are absent and that `Reason` is the only machine-readable classification; 0 failures, 0 errors, 0 skips. |
 | Current retained/API/confirmation subtotal | `[BESTAETIGT] 20/20` | The retained/API/confirmation classes in B ran `FRL02KTriggeredTargetProviderAuditTest` 3/3, `DecisionPublicApiReflectionTest` 2/2, `PriorityActionDiagnosticsTest` 11/11, and `forge.ai.ability.FRL02KConfirmationAuditTest` 4/4; 0 failures, 0 errors, 0 skips. |
 | Current exact B selector including ownership | `[BESTAETIGT] 21/21` | The requested B selector ran the retained/API/confirmation subtotal plus `FRL02KTriggeredTargetOwnershipAuditTest` 1/1; total `21`, passed `21`, failed `0`, skipped `0`. |
 | Current canonical native ownership workload (C) | `[BESTAETIGT] 1/1` | Fresh child-JVM `forge.view.Main sim` workload: `Izzet Guild Kit` vs `Dimir Guild Kit`, 10 games, seed `20260810`, once with the public triggered-target audit file and once without it. The native-only fixture asserts two Blood occurrences, exact lifecycle/A-B ordering, both effects accepted, one stored A target matching temporary B and one differing, typed public projections with no raw engine/localized data, `action_continuation=false`, `state_neutral=true`, `rng_delta=0` for every row, and identical audit/control determinism trees. The workload exited `0`; neither child timed out. |
-| Current broad reactor tests (D) | `[BESTAETIGT] 742 total; 736 passed; 0 failures; 0 errors; 6 skips` | Exact `mvn -pl forge-gui-desktop -am test` completed with the broad reactor outcome in about `12:27`. Module reports: `forge-ai` 20/20, `forge-game` 16/16, and `forge-gui-desktop` 706 total with 700 passed and 6 skips; reactor total is 742/736/0/0/6. All six skips are configured `NetworkPlayIntegrationTest` methods requiring `-Drun.stress.tests=true`: `analyzeLog`, `runComprehensiveDeltaSyncTest`, `runQuickDeltaSyncTest`, `testConfigurableParallel`, `testUnifiedHarnessLocalMode`, and `testConfigurableSequential`. |
+| Current broad reactor tests (D) | `[BESTAETIGT] 742 total; 736 passed; 0 failures; 0 errors; 6 skips` | Exact `mvn -pl forge-gui-desktop -am test` exited 0 in `716 s` (about `11:56`) after the 8a actual-cycle no-stack regression. Module reports: `forge-ai` 20/20, `forge-game` 16/16, and `forge-gui-desktop` 706 total with 700 passed and 6 skips; reactor total is 742/736/0/0/6. The actual-cycle disposition is ordering reached, unclassifiable output dropped before generic stack insertion; it is not native execution or external ownership transfer. All six skips are configured `NetworkPlayIntegrationTest` methods requiring `-Drun.stress.tests=true`: `analyzeLog`, `runComprehensiveDeltaSyncTest`, `runQuickDeltaSyncTest`, `testConfigurableParallel`, `testUnifiedHarnessLocalMode`, and `testConfigurableSequential`. |
 | Historical package (E) | `[STARKES INDIZ]` success at historical HEAD `dbd2d32d6f395c51f44c3b31d1b67f8cf77f8181` | `mvn -pl forge-gui-desktop -am -DskipTests package` completed all six reactor modules with Maven `BUILD SUCCESS`; it produced the desktop JAR, `forge.exe`, and the `jar-with-dependencies` artifact. This package result predates the R1-R4 production/test changes and is not asserted as current. |
-| Historical configured Checkstyle/validation (F) | `[STARKES INDIZ]` clean at historical HEAD `dbd2d32d6f395c51f44c3b31d1b67f8cf77f8181` | `mvn -pl forge-gui-desktop -am validate` reported 0 Checkstyle violations in all six reactor modules at the historical anchor. It is not asserted as current after R1-R4; the current R5 check is limited to this document's `git diff --check`. |
+| Post-8a implementation check (F) | `[STARKES INDIZ]` 0 Checkstyle violations, recorded after 8a | `mvn -pl forge-gui-desktop -am validate` was run after the 8a code patch by the implementation task and passed with 0 Checkstyle violations. It was not rerun in this document-only R5 update and is not a fresh R5 gate; the current R5 check is limited to this document's `git diff --check`. |
 | Current canonical fixture identity | `[BESTAETIGT]` | C used `Izzet Guild Kit` vs `Dimir Guild Kit`, 10 games, seed `20260810`; the fixture is native-only because the test child process configures audit/trace properties and does not install an external target resolver. |
 
 ### 6.1 C2A-R current verification commands
 
-The following focused and broad commands ran from `C:\forgeAI-triggered-target-c2a` against current code HEAD
-`22ae43d7a2b2d4aa766a60ae38868b89334677a0`:
+The following focused and broad commands ran from `C:\forgeAI-triggered-target-c2a` against current code/test HEAD
+`8a3980f123b08f3b00d2dedcfde0eb79befc1b50`:
 
 ```text
 mvn -pl forge-gui-desktop -am '-Dtest=TriggeredTargetDecisionCoordinatorTest,TriggeredTargetContinuationProcessTest,FRL02KTriggeredTargetExternalOwnershipAuditTest,DeterminismTraceV2Test,TargetDecisionProviderTest' '-Dsurefire.failIfNoSpecifiedTests=false' test
@@ -352,7 +358,8 @@ git rev-parse HEAD
 
 The separate R2 selector was `TriggeredTargetIntegrityExceptionApiTest` 1/1. Recorded outcomes were, in order:
 A 93/93, 0 failures, 0 errors, 0 skips; R2 1/1; B 21/21, 0 failures, 0 errors, 0 skips; C 1/1 with exit 0;
-D reactor 742 total, 736 passed, 0 failures, 0 errors, and 6 configured skips. The broad D run took about 12:27;
+D reactor 742 total, 736 passed, 0 failures, 0 errors, and 6 configured skips. The broad D run exited 0 in 716 s
+(about 11:56); the 8a actual-cycle no-stack regression is included in the current focused/broad code/test anchor;
 the six skips are the configured `NetworkPlayIntegrationTest` cases listed in the evidence matrix. No failure, error,
 or timeout is recorded for these current gates.
 
@@ -360,11 +367,17 @@ The generated current reports reconcile A and B through `forge-gui-desktop\targe
 the R2 API report under `forge-game\target\surefire-reports\`, and the module TestNG reports used for D. Older
 report files in the same report directories were not used to inflate or replace the current counts.
 
-The package and configured validation commands, retained for historical traceability only at the earlier verification
-HEAD `dbd2d32d6f395c51f44c3b31d1b67f8cf77f8181`, were:
+The package command, retained for historical traceability only at the earlier verification HEAD
+`dbd2d32d6f395c51f44c3b31d1b67f8cf77f8181`, was:
 
 ```text
 mvn -pl forge-gui-desktop -am -DskipTests package
+```
+
+The validate command was run after the 8a code patch by the implementation task and passed with 0 Checkstyle
+violations. It is recorded as a post-8a implementation-check, not rerun in this document-only R5 update:
+
+```text
 mvn -pl forge-gui-desktop -am validate
 ```
 
@@ -378,9 +391,11 @@ The current A reports record `TriggeredTargetDecisionCoordinatorTest` 33/33,
 `DeterminismTraceV2Test` 9/9, and `TargetDecisionProviderTest` 27/27; the current full named C2A selector is 93/93.
 The separate R2 API selector is 1/1. B's retained/API/confirmation subtotal is 20/20, and the exact requested B
 selector is 21/21 after adding the separate ownership audit 1/1. The coordinator-seam tests assert the external
-zero/one/many orchestration evidence, the R1 native-null cycle/routing protections, and the R4 production
-`orderAndPlaySimultaneousSa` route; the external-ownership methods continue to assert the native/external choice and
-callback-count evidence. None invoke the native Forge-AI callback on an externally owned route.
+zero/one/many orchestration evidence, the resolver-active cycle gate, the 8a actual-cycle no-stack regression
+`cyclicAbilitySubOrderedOutputIsDroppedWithoutResolver`, and the R4 production `orderAndPlaySimultaneousSa` route;
+the external-ownership methods continue to assert the native/external choice and callback-count evidence. None invoke
+the native Forge-AI callback on an externally owned route, and the actual-cycle regression does not transfer
+ownership externally or claim native execution.
 
 The canonical native workload command represented by C is:
 
@@ -412,7 +427,7 @@ Blood Operative ETB TARGET: SUPPORTED (exact profile only)
 global triggered TARGET: OPEN
 Blood CONFIRMATION: OPEN
 global CONFIRMATION: OPEN
-Current C2A-R gates: FINAL_VALIDATED (A 93/93; R2 API 1/1; B 21/21 exact selector with 20/20 retained/API/confirmation subtotal; C 1/1 canonical native workload, exit 0; D 742 total, 736 passed, 0 failures, 0 errors, 6 configured skips; package and validate/checkstyle historical at HEAD dbd2d32d6f395c51f44c3b31d1b67f8cf77f8181; current R5 doc-only diff check clean at HEAD 22ae43d7a2b2d4aa766a60ae38868b89334677a0)
-C2A-R focused/retained/canonical/broad: CURRENT PASS (six configured NetworkPlayIntegrationTest skips remain accepted unless stress validation is explicitly requested; package and validate/checkstyle are not current claims)
+Current C2A-R gates: FINAL_VALIDATED (code/test HEAD 8a3980f123b; A 93/93; R2 API 1/1; B 21/21 exact selector with 20/20 retained/API/confirmation subtotal; C 1/1 canonical native workload, exit 0; D 742 total, 736 passed, 0 failures, 0 errors, 6 configured skips; actual-cycle no-stack regression `cyclicAbilitySubOrderedOutputIsDroppedWithoutResolver` included; package historical at HEAD dbd2d32d6f395c51f44c3b31d1b67f8cf77f8181; post-8a validate/checkstyle implementation-check recorded after the code patch, not rerun in R5; current R5 doc-only diff check clean before commit)
+C2A-R focused/retained/canonical/broad: CURRENT PASS (8a actual-cycle no-stack regression is a narrow malformed-graph safety disposition: ordering is reached, the unclassifiable output is dropped before generic stack insertion, and no native execution or external ownership transfer is claimed; six configured NetworkPlayIntegrationTest skips remain accepted unless stress validation is explicitly requested; package remains historical and validate/checkstyle is only a recorded post-8a implementation-check)
 FRL_02K_C2A_FINAL_VALIDATED
 ```
