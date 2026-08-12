@@ -70,6 +70,11 @@ public final class TriggeredTargetDecisionCoordinator {
         return evaluate(queuedAbility, implicitChooser(queuedAbility)).classification;
     }
 
+    /** Returns the native trigger classification without recursing through a cyclic parent graph. */
+    public boolean isTriggerForRouting(final SpellAbility ability) {
+        return ability != null && !hasCyclicParentChain(ability) && ability.isTrigger();
+    }
+
     /**
      * Prepares the narrow boundary and routes one atomic target decision through the provider seam.
      *

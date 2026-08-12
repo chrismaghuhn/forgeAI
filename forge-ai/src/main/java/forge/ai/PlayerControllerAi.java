@@ -1418,10 +1418,11 @@ public class PlayerControllerAi extends PlayerController {
         enforceTriggeredTargetBoundary(root, resolver, visited, triggeredRoot);
     }
 
-    private static boolean isTriggeredForC2aRouting(final SpellAbility ability,
+    private boolean isTriggeredForC2aRouting(final SpellAbility ability,
             final TargetDecisionProvider.Resolver resolver) {
-        // Native routing already identifies wrapped triggers; avoid recursive parent lookup without external ownership.
-        return resolver != null ? ability.isTrigger() : ability instanceof WrappedAbility;
+        // External ownership is fail-closed before this query; native routing keeps acyclic trigger semantics.
+        return resolver != null ? ability.isTrigger()
+                : triggeredTargetDecisionCoordinator.isTriggerForRouting(ability);
     }
 
     private void enforceTriggeredTargetBoundary(final SpellAbility current,

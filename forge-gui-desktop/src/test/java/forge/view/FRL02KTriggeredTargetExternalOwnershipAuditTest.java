@@ -525,10 +525,13 @@ public class FRL02KTriggeredTargetExternalOwnershipAuditTest extends AITest {
         final Card source = addCardToZone("Island", chooser, ZoneType.Battlefield);
         final AbilitySub first = new AbilitySub(ApiType.Draw, source, null, Map.of());
         final AbilitySub second = new AbilitySub(ApiType.Draw, source, null, Map.of());
+        final AbilitySub safeOrderedAbility = new AbilitySub(ApiType.Draw, source, null, Map.of());
         first.setParent(second);
         second.setParent(first);
+        safeOrderedAbility.setActivatingPlayer(chooser);
 
-        final PreflightOnlyTargetController controller = installPreflightController(game, chooser);
+        final PreflightOnlyTargetController controller = installPreflightController(
+                game, chooser, safeOrderedAbility);
         assertNull(controller.getTargetDecisionResolver());
         final long providerRequestsBefore = providerRequestSequence(controller.getTargetDecisionProvider());
         final int stackBefore = game.getStack().size();
@@ -545,8 +548,25 @@ public class FRL02KTriggeredTargetExternalOwnershipAuditTest extends AITest {
                 "native cyclic preflight must not invoke mode selection");
         assertEquals(controller.orderCalls(), 1,
                 "native cyclic preflight must still reach the controller ordering hook");
-        assertEquals(game.getStack().size(), stackBefore,
-                "empty native ordering must not insert a stack item");
+        assertEquals(game.getStack().size(), stackBefore + 1,
+                "safe ordered follow-up must complete the second routing loop");
+    }
+
+    @Test
+    public void ordinaryNonWrappedTriggerKeepsNativePreparationRouteWithoutResolver() {
+        final BloodFixture fixture = bloodFixture();
+        final AuditedTargetController controller = installController(fixture);
+        final SpellAbility nonWrappedTrigger = fixture.ability();
+        nonWrappedTrigger.putParam("TargetingPlayer", "You");
+        nonWrappedTrigger.setTargetingPlayer(fixture.chooser());
+
+        assertTrue(nonWrappedTrigger.isTrigger());
+        controller.orderAndPlaySimultaneousSa(List.of(nonWrappedTrigger));
+
+        assertEquals(controller.chooseTargetsForCalls(), 1,
+                "an ordinary non-wrapped trigger must use native preparation target routing");
+        assertEquals(controller.nativeCallbackCount(), 0);
+        assertEquals(controller.orderSimultaneousSaCalls(), 1);
     }
 
     @Test(timeOut = 5000)
@@ -777,8 +797,9 @@ public class FRL02KTriggeredTargetExternalOwnershipAuditTest extends AITest {
     }
 
     private static PreflightOnlyTargetController installPreflightController(final Game game,
-            final Player chooser) {
-        final PreflightOnlyTargetController controller = new PreflightOnlyTargetController(game, chooser);
+            final Player chooser, final SpellAbility orderedAbility) {
+        final PreflightOnlyTargetController controller = new PreflightOnlyTargetController(
+                game, chooser, orderedAbility);
         chooser.dangerouslySetController(controller);
         return controller;
     }
@@ -1004,15 +1025,18 @@ public class FRL02KTriggeredTargetExternalOwnershipAuditTest extends AITest {
 
     private static final class PreflightOnlyTargetController extends AuditedTargetController {
         private int orderCalls;
+        private final SpellAbility orderedAbility;
 
-        private PreflightOnlyTargetController(final Game game, final Player player) {
+        private PreflightOnlyTargetController(final Game game, final Player player,
+                final SpellAbility orderedAbility) {
             super(game, player);
+            this.orderedAbility = orderedAbility;
         }
 
         @Override
         public List<SpellAbility> orderSimultaneousSa(final List<SpellAbility> activePlayerSAs) {
             orderCalls++;
-            return List.of();
+            return List.of(orderedAbility);
         }
 
         private int orderCalls() {

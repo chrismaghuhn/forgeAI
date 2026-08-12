@@ -19,6 +19,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /** Fresh-JVM proof that an active single-action continuation fails closed at the C2A boundary. */
 public final class TriggeredTargetContinuationChildMain {
@@ -39,7 +40,7 @@ public final class TriggeredTargetContinuationChildMain {
         try {
             System.setOut(quietOutput);
             System.setErr(quietOutput);
-            result = new ProofRunner().run();
+            result = new ProofRunner(args.length > 0 && "external".equals(args[0])).run();
         } finally {
             System.setOut(originalOut);
             System.setErr(originalErr);
@@ -49,10 +50,17 @@ public final class TriggeredTargetContinuationChildMain {
         System.out.println("reason=" + result.reason());
         System.out.println("provider_requests=" + result.providerRequests());
         System.out.println("resolver_present=" + result.resolverPresent());
+        System.out.println("resolver_calls=" + result.resolverCalls());
         System.out.println("native_calls=" + result.nativeCalls());
     }
 
     private static final class ProofRunner extends AITest {
+        private final boolean externalResolver;
+
+        private ProofRunner(final boolean externalResolver) {
+            this.externalResolver = externalResolver;
+        }
+
         private ProofResult run() throws Exception {
             initializeModel();
             final BloodFixture fixture = bloodFixture();
@@ -60,8 +68,18 @@ public final class TriggeredTargetContinuationChildMain {
                     fixture.game(), fixture.chooser());
             final TargetDecisionProvider provider = nativeController.getTargetDecisionProvider();
             final long providerRequestStart = providerRequestSequence(provider);
-            require(nativeController.getTargetDecisionResolver() == null,
-                    "native continuation proof must run without an external resolver");
+            final AtomicInteger resolverCalls = new AtomicInteger();
+            if (externalResolver) {
+                nativeController.setTargetDecisionResolver(request -> {
+                    resolverCalls.incrementAndGet();
+                    return null;
+                });
+                require(nativeController.getTargetDecisionResolver() != null,
+                        "external continuation proof must install an external resolver");
+            } else {
+                require(nativeController.getTargetDecisionResolver() == null,
+                        "native continuation proof must run without an external resolver");
+            }
             String reason = null;
             int providerRequests = -1;
             try {
@@ -81,11 +99,14 @@ public final class TriggeredTargetContinuationChildMain {
 
                 providerRequests = Math.toIntExact(providerRequestSequence(provider) - providerRequestStart);
                 final int nativeCalls = nativeController.getNativeCalls();
+                final int resolverCallCount = resolverCalls.get();
                 require("UNSUPPORTED_ACTION_CONTINUATION".equals(reason),
                         "unexpected continuation reason: " + reason);
                 require(providerRequests == 0, "target provider generated a request");
+                require(resolverCallCount == 0, "external resolver was invoked");
                 require(nativeCalls == 0, "native target callback was invoked");
-                return new ProofResult(reason, providerRequests, false, nativeCalls);
+                return new ProofResult(reason, providerRequests, externalResolver,
+                        resolverCallCount, nativeCalls);
             } finally {
                 PriorityActionDiagnostics.endAction();
             }
@@ -158,7 +179,8 @@ public final class TriggeredTargetContinuationChildMain {
         }
     }
 
-    private record ProofResult(String reason, int providerRequests, boolean resolverPresent, int nativeCalls) {
+    private record ProofResult(String reason, int providerRequests, boolean resolverPresent,
+            int resolverCalls, int nativeCalls) {
     }
 
     private record BloodFixture(Game game, Player chooser, Player opponent, Card source,
