@@ -58,7 +58,7 @@ public final class TriggeredTargetContinuationChildMain {
             final BloodFixture fixture = bloodFixture();
             final CountingTargetController nativeController = installCountingController(
                     fixture.game(), fixture.chooser());
-            final TargetDecisionProvider provider = new TargetDecisionProvider();
+            final TargetDecisionProvider provider = nativeController.getTargetDecisionProvider();
             final long providerRequestStart = providerRequestSequence(provider);
             final int resolverCalls = 0;
             String reason = null;
@@ -72,15 +72,14 @@ public final class TriggeredTargetContinuationChildMain {
                         "single-action continuation was not opened");
 
                 try {
-                    new TriggeredTargetDecisionCoordinator().prepare(fixture.wrapper(), fixture.chooser(), provider,
-                            null);
+                    nativeController.playTrigger(fixture.source(), fixture.wrapper(), true);
                     throw new IllegalStateException("continuation boundary did not fail early");
                 } catch (final TriggeredTargetIntegrityException exception) {
                     reason = exception.getReason();
                 }
 
                 providerRequests = Math.toIntExact(providerRequestSequence(provider) - providerRequestStart);
-                final int nativeCalls = nativeController.getChooseTargetsForCalls();
+                final int nativeCalls = nativeController.getNativeCalls();
                 require("UNSUPPORTED_ACTION_CONTINUATION".equals(reason),
                         "unexpected continuation reason: " + reason);
                 require(providerRequests == 0, "target provider generated a request");
@@ -142,20 +141,20 @@ public final class TriggeredTargetContinuationChildMain {
     }
 
     private static final class CountingTargetController extends PlayerControllerAi {
-        private int chooseTargetsForCalls;
+        private int nativeCalls;
 
         private CountingTargetController(final Game game, final Player player) {
             super(game, player, new LobbyPlayerAi(player.getName() + "-frl02k-c2a-child", null));
         }
 
         @Override
-        public boolean chooseTargetsFor(final SpellAbility currentAbility) {
-            chooseTargetsForCalls++;
-            return true;
+        protected boolean invokeNativeTriggeredTarget(final SpellAbility underlying, final boolean mandatory) {
+            nativeCalls++;
+            return super.invokeNativeTriggeredTarget(underlying, mandatory);
         }
 
-        private int getChooseTargetsForCalls() {
-            return chooseTargetsForCalls;
+        private int getNativeCalls() {
+            return nativeCalls;
         }
     }
 

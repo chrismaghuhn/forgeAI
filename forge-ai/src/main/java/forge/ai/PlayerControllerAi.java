@@ -1363,6 +1363,8 @@ public class PlayerControllerAi extends PlayerController {
     @Override
     public void orderAndPlaySimultaneousSa(List<SpellAbility> activePlayerSAs) {
         for (final SpellAbility sa : orderSimultaneousSa(activePlayerSAs)) {
+            triggeredTargetDecisionCoordinator.enforceExternalTargetBoundary(sa,
+                    getTargetDecisionResolver());
             if (sa.isTrigger() && !sa.isCopied()) {
                 if (prepareSingleSa(sa.getHostCard(), sa, true)) {
                     ComputerUtil.playStack(sa, player, getGame());
@@ -1407,6 +1409,7 @@ public class PlayerControllerAi extends PlayerController {
             }
             sa = sa.getSubAbility();
         }
+        triggeredTargetDecisionCoordinator.enforceExternalTargetBoundary(sa, getTargetDecisionResolver());
         if (sa instanceof WrappedAbility wrapper) {
             final TriggeredTargetDecisionCoordinator.Preparation preparation =
                     triggeredTargetDecisionCoordinator.prepare(wrapper, wrapper.getDecider(),

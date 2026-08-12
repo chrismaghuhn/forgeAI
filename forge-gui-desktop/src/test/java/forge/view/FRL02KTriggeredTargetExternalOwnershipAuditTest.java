@@ -6,6 +6,7 @@ import forge.ai.PlayerControllerAi;
 import forge.game.Game;
 import forge.game.ability.AbilityFactory;
 import forge.game.card.Card;
+import forge.game.card.CardFactory;
 import forge.card.CardStateName;
 import forge.game.decision.DecisionRequest;
 import forge.game.decision.DeterminismTrace;
@@ -271,6 +272,59 @@ public class FRL02KTriggeredTargetExternalOwnershipAuditTest extends AITest {
         }
     }
 
+    @Test
+    public void copiedTargetedTriggerIsRejectedBeforeOrderBranchStackInsertion() {
+        final BloodFixture fixture = bloodFixture();
+        final AuditedTargetController controller = installController(fixture);
+        final AtomicInteger resolverCalls = new AtomicInteger();
+        controller.setTargetDecisionResolver(request -> {
+            resolverCalls.incrementAndGet();
+            return firstTargetCandidate(request);
+        });
+        final WrappedAbility copied = (WrappedAbility) CardFactory.copySpellAbilityAndPossiblyHost(
+                fixture.wrapper(), fixture.wrapper(), fixture.chooser());
+        assertTrue(copied.isCopied());
+        final int stackBefore = fixture.game().getStack().size();
+
+        final TriggeredTargetIntegrityException exception = expectThrows(
+                TriggeredTargetIntegrityException.class,
+                () -> controller.orderAndPlaySimultaneousSa(List.of(copied)));
+
+        assertEquals(exception.getReason(), "UNSUPPORTED_PROFILE");
+        assertEquals(resolverCalls.get(), 0);
+        assertEquals(controller.nativeCallbackCount(), 0);
+        assertEquals(controller.chooseTargetsForCalls(), 0);
+        assertEquals(fixture.game().getStack().size(), stackBefore,
+                "unsupported copied targeted triggers must not be inserted into the stack");
+    }
+
+    @Test
+    public void nonWrappedTargetedTriggerIsRejectedBeforeControllerFallbackOrStackInsertion() {
+        final BloodFixture fixture = bloodFixture();
+        final AuditedTargetController controller = installController(fixture);
+        final AtomicInteger resolverCalls = new AtomicInteger();
+        controller.setTargetDecisionResolver(request -> {
+            resolverCalls.incrementAndGet();
+            return firstTargetCandidate(request);
+        });
+        final SpellAbility nonWrapped = fixture.ability();
+        assertFalse(nonWrapped instanceof WrappedAbility);
+        nonWrapped.putParam("TargetingPlayer", "You");
+        nonWrapped.setTargetingPlayer(fixture.chooser());
+        final int stackBefore = fixture.game().getStack().size();
+
+        final TriggeredTargetIntegrityException exception = expectThrows(
+                TriggeredTargetIntegrityException.class,
+                () -> controller.orderAndPlaySimultaneousSa(List.of(nonWrapped)));
+
+        assertEquals(exception.getReason(), "UNSUPPORTED_PROFILE");
+        assertEquals(resolverCalls.get(), 0);
+        assertEquals(controller.nativeCallbackCount(), 0);
+        assertEquals(controller.chooseTargetsForCalls(), 0);
+        assertEquals(fixture.game().getStack().size(), stackBefore,
+                "unsupported non-wrapped targeted triggers must not be inserted into the stack");
+    }
+
     private BloodRun openBloodRun(final String directoryPrefix) throws Exception {
         final Random previousRandom = MyRandom.getRandom();
         final DeterminismAuditRandom auditRandom = new DeterminismAuditRandom(DETERMINISTIC_SEED);
@@ -446,6 +500,7 @@ public class FRL02KTriggeredTargetExternalOwnershipAuditTest extends AITest {
 
     private static final class AuditedTargetController extends PlayerControllerAi {
         private int nativeCallbackCount;
+        private int chooseTargetsForCalls;
         private int resolverCalls;
         private Card nativeTarget;
 
@@ -464,12 +519,27 @@ public class FRL02KTriggeredTargetExternalOwnershipAuditTest extends AITest {
         }
 
         @Override
+        public List<SpellAbility> orderSimultaneousSa(final List<SpellAbility> activePlayerSAs) {
+            return activePlayerSAs;
+        }
+
+        @Override
+        public boolean chooseTargetsFor(final SpellAbility currentAbility) {
+            chooseTargetsForCalls++;
+            return true;
+        }
+
+        @Override
         public boolean confirmTrigger(final WrappedAbility wrapper) {
             return true;
         }
 
         private int nativeCallbackCount() {
             return nativeCallbackCount;
+        }
+
+        private int chooseTargetsForCalls() {
+            return chooseTargetsForCalls;
         }
 
         private Card nativeTarget() {
