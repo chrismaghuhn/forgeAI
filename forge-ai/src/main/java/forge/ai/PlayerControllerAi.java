@@ -1408,32 +1408,41 @@ public class PlayerControllerAi extends PlayerController {
 
     private void enforceTriggeredTargetBoundary(final SpellAbility root,
             final TargetDecisionProvider.Resolver resolver) {
-        for (SpellAbility current = root; current != null; current = current.getSubAbility()) {
-            triggeredTargetDecisionCoordinator.enforceExternalTargetBoundary(current, resolver);
-            if (current.getApi() == ApiType.Charm) {
-                for (final AbilitySub choice : current.getAdditionalAbilityList("Choices")) {
-                    triggeredTargetDecisionCoordinator.enforceExternalTargetBoundary(choice, resolver);
-                }
-            }
+        final Set<SpellAbility> visited = Collections.newSetFromMap(new IdentityHashMap<>());
+        enforceTriggeredTargetBoundary(root, resolver, visited);
+    }
+
+    private void enforceTriggeredTargetBoundary(final SpellAbility current,
+            final TargetDecisionProvider.Resolver resolver, final Set<SpellAbility> visited) {
+        if (current == null || !visited.add(current)) {
+            return;
         }
+
+        triggeredTargetDecisionCoordinator.enforceExternalTargetBoundary(current, resolver);
+        for (final AbilitySub choice : current.getAdditionalAbilityList("Choices")) {
+            enforceTriggeredTargetBoundary(choice, resolver, visited);
+        }
+        enforceTriggeredTargetBoundary(current.getSubAbility(), resolver, visited);
     }
 
     private boolean prepareSingleSa(final Card host, SpellAbility sa, boolean isMandatory) {
-        enforceTriggeredTargetBoundary(sa, getTargetDecisionResolver());
+        final TargetDecisionProvider.Resolver resolver = getTargetDecisionResolver();
+        enforceTriggeredTargetBoundary(sa, resolver);
         if (sa.getApi() == ApiType.Charm) {
             if (!CharmEffect.makeChoices(sa)) {
                 return false;
             }
+            enforceTriggeredTargetBoundary(sa, resolver);
             if (!sa.hasParam("Random")) {
                 return true;
             }
             sa = sa.getSubAbility();
         }
-        triggeredTargetDecisionCoordinator.enforceExternalTargetBoundary(sa, getTargetDecisionResolver());
+        triggeredTargetDecisionCoordinator.enforceExternalTargetBoundary(sa, resolver);
         if (sa instanceof WrappedAbility wrapper) {
             final TriggeredTargetDecisionCoordinator.Preparation preparation =
                     triggeredTargetDecisionCoordinator.prepare(wrapper, wrapper.getDecider(),
-                            getTargetDecisionProvider(), getTargetDecisionResolver());
+                            getTargetDecisionProvider(), resolver);
             switch (preparation.getStatus()) {
             case NO_STACK:
                 TriggeredTargetAuditDiagnostics.recordTargetPreparation(sa,

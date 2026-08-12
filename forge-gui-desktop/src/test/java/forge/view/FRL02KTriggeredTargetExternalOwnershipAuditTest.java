@@ -369,6 +369,65 @@ public class FRL02KTriggeredTargetExternalOwnershipAuditTest extends AITest {
         assertEquals(game.getStack().size(), stackBefore);
     }
 
+    @Test
+    public void nestedTargetedCharmBranchIsRejectedBeforeChoiceOrFallback() {
+        final NestedCharmFixture fixture = nestedCharmFixture();
+        final AuditedTargetController controller = installController(fixture.game(), fixture.chooser());
+        controller.setTargetDecisionResolver(request -> {
+            controller.incrementResolverCalls();
+            return null;
+        });
+        final int stackBefore = fixture.game().getStack().size();
+
+        final TriggeredTargetIntegrityException exception = expectThrows(
+                TriggeredTargetIntegrityException.class,
+                () -> controller.playTrigger(fixture.source(), fixture.wrapper(), true));
+
+        assertEquals(exception.getReason(), "UNSUPPORTED_PROFILE");
+        assertFalse(fixture.nonTargetingHead().usesTargeting());
+        assertTrue(fixture.nestedTarget().usesTargeting());
+        assertEquals(controller.resolverCalls(), 0,
+                "nested targeted Charm branches must fail before external target generation");
+        assertEquals(controller.nativeCallbackCount(), 0,
+                "nested targeted Charm branches must fail before native target fallback");
+        assertEquals(controller.chooseTargetsForCalls(), 0,
+                "nested targeted Charm branches must fail before chooser target fallback");
+        assertEquals(controller.chooseModeForAbilityCalls(), 0,
+                "nested targeted Charm branches must fail before Charm mode selection");
+        assertEquals(fixture.game().getStack().size(), stackBefore,
+                "nested targeted Charm branches must not insert a stack item");
+    }
+
+    private NestedCharmFixture nestedCharmFixture() {
+        final Game game = initAndCreateGame();
+        final Player chooser = game.getPlayers().get(1);
+        final Card source = addCardToZone("Aven Surveyor", chooser, ZoneType.Battlefield);
+        final Trigger trigger = source.getTriggers().stream()
+                .filter(candidate -> candidate.getMode() == TriggerType.ChangesZone)
+                .filter(candidate -> "TrigCharm".equals(candidate.getParam("Execute")))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("Aven Surveyor Charm trigger fixture is unavailable"));
+        final SpellAbility ability = trigger.ensureAbility();
+        ability.setActivatingPlayer(chooser);
+        final WrappedAbility wrapper = new WrappedAbility(trigger, ability, chooser);
+        assertEquals(wrapper.getApi(), ApiType.Charm);
+
+        final AbilitySub nonTargetingHead = wrapper.getAdditionalAbilityList("Choices").stream()
+                .filter(choice -> !choice.usesTargeting())
+                .filter(choice -> choice.getSubAbility() == null)
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("Aven Surveyor lacks a usable non-targeting Charm head"));
+        final AbilitySub targetBranch = wrapper.getAdditionalAbilityList("Choices").stream()
+                .filter(SpellAbility::usesTargeting)
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("Aven Surveyor lacks a target-bearing Charm branch"));
+        final AbilitySub nestedTarget = (AbilitySub) targetBranch.copy(chooser);
+        nonTargetingHead.setSubAbility(nestedTarget);
+        wrapper.setAdditionalAbilityList("Choices", List.of(nonTargetingHead));
+
+        return new NestedCharmFixture(game, chooser, source, wrapper, nonTargetingHead, nestedTarget);
+    }
+
     private BloodRun openBloodRun(final String directoryPrefix) throws Exception {
         final Random previousRandom = MyRandom.getRandom();
         final DeterminismAuditRandom auditRandom = new DeterminismAuditRandom(DETERMINISTIC_SEED);
@@ -637,6 +696,10 @@ public class FRL02KTriggeredTargetExternalOwnershipAuditTest extends AITest {
         private TargetDecisionProvider provider() {
             return chooser.getController().getTargetDecisionProvider();
         }
+    }
+
+    private record NestedCharmFixture(Game game, Player chooser, Card source, WrappedAbility wrapper,
+            AbilitySub nonTargetingHead, AbilitySub nestedTarget) {
     }
 
     private static final class BloodRun implements AutoCloseable {
