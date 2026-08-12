@@ -279,6 +279,61 @@ public class FRL02KTriggeredTargetExternalOwnershipAuditTest extends AITest {
         }
     }
 
+    @Test(timeOut = 5000)
+    public void externalOwnershipThroughOrderAndPlayUsesLiveTargetBeforeResolution() throws Exception {
+        final BloodRun run = openBloodRun("frl02k-c2a-order-");
+        try {
+            final BloodFixture fixture = run.fixture();
+            assertBloodFixture(fixture);
+            final AuditedTargetController controller = installController(fixture);
+            final AtomicReference<LegalCandidate> selectedSeen = new AtomicReference<>();
+            controller.setTargetDecisionResolver(request -> {
+                controller.incrementResolverCalls();
+                final LegalCandidate selected = request.getCandidates().stream()
+                        .filter(candidate -> candidate.getTargetKind() == TargetCandidateKind.TARGET_CARD)
+                        .filter(candidate -> fixture.firstTarget().getName().equals(candidate.getTargetName()))
+                        .findFirst()
+                        .orElseThrow();
+                selectedSeen.set(selected);
+                return selected;
+            });
+            final int stackBefore = fixture.game().getStack().size();
+
+            controller.orderAndPlaySimultaneousSa(List.of(fixture.wrapper()));
+
+            assertEquals(controller.orderSimultaneousSaCalls(), 1,
+                    "the production order route must invoke the deterministic ordering hook once");
+            assertEquals(controller.resolverCalls(), 1,
+                    "external ownership must invoke the resolver exactly once before stack insertion");
+            assertEquals(controller.nativeCallbackCount(), 0,
+                    "external ownership must not invoke the native target adapter");
+            assertEquals(fixture.game().getStack().size(), stackBefore + 1,
+                    "the inherited order route must insert one ability on the live stack");
+            assertEquals(fixture.ability().getTargets().size(), 1);
+            assertEquals(fixture.ability().getTargets().get(0), fixture.firstTarget(),
+                    "the selected target must be present on the live underlying ability before resolution");
+
+            fixture.game().getStack().resolveStack();
+
+            assertEquals(controller.resolverCalls(), 1,
+                    "resolving the queued trigger must not re-enter the external resolver");
+            assertEquals(controller.nativeCallbackCount(), 0,
+                    "resolving the queued trigger must not invoke the native target adapter");
+            assertEquals(fixture.game().getStack().size(), stackBefore);
+            assertExactlyOneTargetApplied(fixture, fixture.firstTarget().getName());
+
+            final TraceEvidence trace = readTrace(run.finishAndReadDecisionTrace());
+            assertEquals(trace.requestDecisionType(), "TARGET");
+            assertEquals(trace.requestAdapter(), "TRIGGERED_TARGET");
+            assertEquals(trace.resultKind(), "CHOSEN");
+            assertEquals(trace.resultSelectedCandidate(), traceText(selectedSeen.get().getSemanticKey()));
+            assertEquals(trace.nativeCallbackCompleted(), "false");
+            assertEquals(trace.mappingAttempted(), "false");
+        } finally {
+            run.close();
+        }
+    }
+
     @Test
     public void copiedTargetedTriggerIsRejectedBeforeOrderBranchStackInsertion() {
         final BloodFixture fixture = bloodFixture();
