@@ -1,11 +1,11 @@
 # FRL-02K-C2A - Triggered TARGET Provider Seam Audit
 
-Status: C2A narrow production seam present; the P2 quality-review follow-up is anchored to test commit
-`c44c80c6d9f67f1f480ca246a8bf804805fdd6c7` with 81/81 pre-existing focused C2A core tests, 3/3 P2 retained
-orchestration tests, 3/3 prior final-review regressions, 3/3 latest-review regressions (90/90 in the full named
-C2A selector), and 20/20 retained/API/confirmation tests. The earlier 84-test aggregate in the previous audit
-snapshot is historical only, not a current selector count. The broad reactor, package, and canonical results remain historical; no current
-broad/package/canonical validation is claimed and revalidation remains required.
+Status: `FRL_02K_C2A_FINAL_VALIDATED`. The final Task 12 verification ran against verification HEAD
+`dbd2d32d6f395c51f44c3b31d1b67f8cf77f8181` and passed the full focused C2A selector 90/90, the exact retained/API/
+confirmation/ownership selector 21/21 (20/20 when the separate ownership audit is excluded), the canonical native
+ownership workload 1/1, the broad reactor 738 total with 732 passed and 6 configured skips, package, and configured
+validation. The earlier 84-test aggregate in the previous audit snapshot is historical only, not a current selector
+count. This document is the only file changed after those gates, in a separate audit-document commit.
 
 Audit date: 2026-08-12
 
@@ -22,17 +22,17 @@ Previous quality-review starting HEAD: `92384c6865d27c23df671de538b20feb1f58b2f0
 P2 follow-up starting HEAD before the retained tests: `b9b7e6da3dbaaca2a323795071d551c3e3097bf0`
 (`docs: record FRL-02K-C2A latest review evidence`); branch ahead count was 32 relative to `origin/master`.
 
-Final code/test HEAD: `c44c80c6d9f67f1f480ca246a8bf804805fdd6c7`
-(`test: retain C2A external orchestration coverage`); `git rev-list --left-right --count origin/master...HEAD`
-was `0 33` at this code/test anchor. The audit-document update is committed separately after this anchor;
-the bounded code/test evidence belongs to `c44c80c6d9f67f1f480ca246a8bf804805fdd6c7`.
+Final verification HEAD before the audit-only update: `dbd2d32d6f395c51f44c3b31d1b67f8cf77f8181`
+(`docs: reconcile C2A quality review counts`); `git rev-list --left-right --count origin/master...HEAD`
+was `0 34` at this verification anchor. A separate audit-document commit follows the completed verification;
+no production code or test files are changed by this Task 12 run.
 
 Base: `3851fdf3825` (`origin/master`, `FRL-02K-C2: audit triggered target ownership`)
 
-This is the bounded quality-review revalidation checkpoint for the committed C2A seam. It documents the exact
-admitted Blood Operative ETB target shape, the measured native/external ownership boundary, and the focused,
-retained/API/confirmation, and configured-validation results actually rerun for this review. It does not generalize
-triggered TARGET or add a CONFIRMATION boundary.
+This is the final Task 12 validation checkpoint for the committed C2A seam. It documents the exact admitted Blood
+Operative ETB target shape, the measured native/external ownership boundary, and the focused, retained/API/
+confirmation, canonical native, broad reactor, package, and configured-validation results actually rerun for this
+review. It does not generalize triggered TARGET or add a CONFIRMATION boundary.
 
 Evidence labels:
 
@@ -207,7 +207,7 @@ engine-forced `FORCED` provenance; many strategic candidates sanitize a provider
 
 ### 4.3 Final quality-review fail-closed hardening
 
-[BESTAETIGT] At final code/test HEAD `c44c80c6d9f67f1f480ca246a8bf804805fdd6c7`,
+[BESTAETIGT] At final verification HEAD `dbd2d32d6f395c51f44c3b31d1b67f8cf77f8181`,
 `PlayerControllerAi.orderAndPlaySimultaneousSa` runs the triggered-target boundary traversal before
 `orderSimultaneousSa` regardless of resolver presence. The coordinator rejects a malformed cyclic parent chain with
 the sanitized `UNSUPPORTED_PROFILE` result before `getTrigger`/`isTrigger` introspection, ordering, native targeting,
@@ -276,7 +276,7 @@ comparison.
 |---|---|---|
 | Previous quality-review starting checkpoint | `[BESTAETIGT]` clean requested branch/worktree; checkpoint HEAD `92384c6865d27c23df671de538b20feb1f58b2f0`; base `3851fdf3825`; branch ahead 28 | Historical checkpoint from the preceding quality review |
 | P2 follow-up starting checkpoint | `[BESTAETIGT]` clean HEAD `b9b7e6da3dbaaca2a323795071d551c3e3097bf0`; branch ahead 32 | `git status --short --branch`, `git rev-parse HEAD`, and `git rev-list --left-right --count origin/master...HEAD` |
-| Final code/test anchor | `[BESTAETIGT]` HEAD `c44c80c6d9f67f1f480ca246a8bf804805fdd6c7`; ahead 33 (`0 33`) | Test-only commit `test: retain C2A external orchestration coverage`; validation evidence below was rerun for this tree before the separate audit-document commit |
+| Final verification anchor | `[BESTAETIGT]` HEAD `dbd2d32d6f395c51f44c3b31d1b67f8cf77f8181`; ahead 34 (`0 34`) | Verification started from the clean requested checkout; this document is the only file changed after A-F and is committed separately |
 | Quality-review RED baseline | `[STARKES INDIZ]` historical prior baseline 20 total; 17 passed, 3 failed, 0 errors, 0 skips | Test-only RED run for the preceding review; its three failures were corrected before the prior latest review |
 | Latest-review RED/GREEN gate | `[STARKES INDIZ]` historical RED 50 total; 47 passed, 3 failed, 0 errors, 0 skips; GREEN 50/50 with 0 failures/errors/skips | Test-only RED/GREEN gate for the preceding review; not the current P2 follow-up selector |
 | P2 retained external orchestration tests | `[BESTAETIGT]` 3/3 | `TriggeredTargetDecisionCoordinatorTest`: external zero-target `NO_STACK`, forced one-target provider completion/engine-forced provenance, and strategic many-target provider-apply sanitization; no production code changed |
@@ -287,35 +287,46 @@ comparison.
 | Task 8 validator/continuation | `[BESTAETIGT] 10/10` = V2 validator/trace 9/9 plus fresh-JVM continuation 1/1 | `DeterminismTraceV2Test` and `TriggeredTargetContinuationProcessTest`; exact child output is in section 5 |
 | External ownership and boundary regressions | `[BESTAETIGT] 20/20` | `FRL02KTriggeredTargetExternalOwnershipAuditTest`; includes native/external ownership, five invalid-candidate cases, throwing-resolver sanitization, ordinary copied targeted-child native order/stack ownership, copied/non-wrapped/Charm/nested-child rejection, four additional-child routes (`TrueSubAbility`, `FalseSubAbility`, `FallbackAbility`, and a non-`Choices` additional list), the resolver-null cyclic-parent rejection, direct preparation/`playTrigger` cycle rejection, and the targeted non-`AbilitySub` child fixture. All resolver/native/chooser/order/stack fallback counters remain zero on the fail-closed routes. |
 | Throwing-resolver focused gate | `[BESTAETIGT] 1/1` | `throwingResolverFailsClosedWithoutNativeFallbackOrMappingFailure`; `RuntimeException` is sanitized to `INVALID_EXTERNAL_CANDIDATE`, with no native fallback and no `MAPPING_FAILED` reclassification |
-| Current focused C2A suite | `[BESTAETIGT] 81/81 pre-existing focused core; 3/3 P2 retained orchestration; 3/3 prior final-review regressions; 3/3 latest-review regressions; 90/90 full selector` | The current full selector at code/test HEAD `c44c80c6d9f67f1f480ca246a8bf804805fdd6c7` ran `TriggeredTargetDecisionCoordinatorTest` 33/33, `TriggeredTargetContinuationProcessTest` 1/1, `FRL02KTriggeredTargetExternalOwnershipAuditTest` 20/20, `DeterminismTraceV2Test` 9/9, and `TargetDecisionProviderTest` 27/27; 0 failures/errors/skips; Maven `BUILD SUCCESS`. The 81/81 pre-existing core is the prior 81/81 subset; the P2 tests are identified separately so the former 84-test aggregate cannot be mistaken for a current total. |
-| Current retained/API/confirmation suite | `[BESTAETIGT] 20/20` | Exact selector ran `FRL02KTriggeredTargetProviderAuditTest` 3/3, `DecisionPublicApiReflectionTest` 2/2, `PriorityActionDiagnosticsTest` 11/11, and `forge.ai.ability.FRL02KConfirmationAuditTest` 4/4; 0 failures/errors/skips; Maven `BUILD SUCCESS` at code/test HEAD `c44c80c6d9f67f1f480ca246a8bf804805fdd6c7`. |
-| Earlier Task 12 C canonical/native ownership-difference workload | `[UNKLAERT] historical only; not current` | The prior `FRL02KTriggeredTargetOwnershipAuditTest` result belongs to the earlier Task 12 checkpoint and was not counted after the 9e4a0ec, 6443e76, 92cfca97 routing changes and this review. A combined rerun exceeded the bounded 120-second command limit and was terminated; no current pass is claimed. |
-| Earlier Task 12 D broad reactor tests | `[UNKLAERT] historical only; not current` | The 720-test result (714 passed, 6 configured stress skips) from the 7e014aff Task 12 documentation checkpoint is retained as history, not current evidence after production routing changes. Broad revalidation was not rerun in this bounded review. |
-| Earlier Task 12 E package build | `[UNKLAERT] historical only; not current` | The earlier package success from the 7e014aff Task 12 documentation checkpoint is retained as history, not current evidence after production routing changes. Package revalidation was not rerun in this bounded review. |
-| Current configured Checkstyle/validation | `[BESTAETIGT] clean (0 violations)` | Exact `mvn -pl forge-gui-desktop -am validate` completed with Maven `BUILD SUCCESS`; configured `checkstyle-validation` reported 0 violations in all six reactor modules. `git diff --check` also exited 0. |
-| Earlier canonical reference workload | `[UNKLAERT] historical only; not current` | Izzet Guild Kit vs Dimir Guild Kit, 10 games, seed `20260810`, remains prior evidence in the confirmation/determinism reports and was not rerun in this bounded review. |
+| Current focused C2A suite (A) | `[BESTAETIGT] 90/90` | At verification HEAD `dbd2d32d6f395c51f44c3b31d1b67f8cf77f8181`, the exact selector ran `TriggeredTargetDecisionCoordinatorTest` 33/33, `TriggeredTargetContinuationProcessTest` 1/1, `FRL02KTriggeredTargetExternalOwnershipAuditTest` 20/20, `DeterminismTraceV2Test` 9/9, and `TargetDecisionProviderTest` 27/27; 0 failures, 0 errors, 0 skips. `testng-results.xml` reports `total=90`, `passed=90`, `failed=0`, `skipped=0`; Maven `BUILD SUCCESS`, test elapsed 29.95 s, reactor total 57.783 s. |
+| Current retained/API/confirmation subtotal | `[BESTAETIGT] 20/20` | The retained/API/confirmation classes in B ran `FRL02KTriggeredTargetProviderAuditTest` 3/3, `DecisionPublicApiReflectionTest` 2/2, `PriorityActionDiagnosticsTest` 11/11, and `forge.ai.ability.FRL02KConfirmationAuditTest` 4/4; 0 failures, 0 errors, 0 skips. |
+| Current exact B selector including ownership | `[BESTAETIGT] 21/21` | The requested B selector also ran `FRL02KTriggeredTargetOwnershipAuditTest` 1/1, for 21 total; `testng-results.xml` reports `total=21`, `passed=21`, `failed=0`, `skipped=0`; Maven `BUILD SUCCESS`, test elapsed 131.3 s, reactor total 02:39 min. |
+| Current canonical native ownership workload (C) | `[BESTAETIGT] 1/1` | Fresh child-JVM `forge.view.Main sim` workload: `Izzet Guild Kit` vs `Dimir Guild Kit`, 10 games, seed `20260810`, once with the public triggered-target audit file and once without it. The native-only fixture asserts two Blood occurrences, exact lifecycle/A-B ordering, both effects accepted, one stored A target matching temporary B and one differing, typed public projections with no raw engine/localized data, `action_continuation=false`, `state_neutral=true`, `rng_delta=0` for every row, and identical audit/control determinism trees. Maven `BUILD SUCCESS`; test elapsed 116.5 s, reactor total 02:22 min; neither child timed out. |
+| Current broad reactor tests (D) | `[BESTAETIGT] 738 total; 732 passed; 0 failures; 0 errors; 6 skips` | Exact `mvn -pl forge-gui-desktop -am test` completed with Maven `BUILD SUCCESS` in 12:11 min. Module reports: `forge-game` 15/15, `forge-ai` 20/20, and `forge-gui-desktop` 697/703 with 6 skips; reactor total is 738/732/0/0/6. All six skips are configured `NetworkPlayIntegrationTest` methods requiring `-Drun.stress.tests=true`: `analyzeLog`, `runComprehensiveDeltaSyncTest`, `runQuickDeltaSyncTest`, `testConfigurableParallel`, `testUnifiedHarnessLocalMode`, and `testConfigurableSequential`. |
+| Current package (E) | `[BESTAETIGT]` | Exact `mvn -pl forge-gui-desktop -am -DskipTests package` completed all six reactor modules with Maven `BUILD SUCCESS` in 43.809 s; it produced the desktop JAR, `forge.exe`, and the `jar-with-dependencies` artifact. Tests were explicitly skipped by the command. |
+| Current configured Checkstyle/validation (F) | `[BESTAETIGT] clean (0 violations)` | Exact `mvn -pl forge-gui-desktop -am validate` completed with Maven `BUILD SUCCESS` in 2.139 s; `checkstyle-validation` reported 0 violations in all six reactor modules. `git diff --check` exited 0. |
+| Current canonical fixture identity | `[BESTAETIGT]` | C used `Izzet Guild Kit` vs `Dimir Guild Kit`, 10 games, seed `20260810`; the fixture is native-only because the test child process configures audit/trace properties and does not install an external target resolver. |
 
-### 6.1 Quality-review exact commands
+### 6.1 Final Task 12 exact commands
 
-The latest bounded quality-review verification commands were run from `C:\forgeAI-triggered-target-c2a`:
+The following commands ran sequentially from `C:\forgeAI-triggered-target-c2a` against verification HEAD
+`dbd2d32d6f395c51f44c3b31d1b67f8cf77f8181`:
 
 ```text
-mvn -pl forge-gui-desktop -am '-Dtest=TriggeredTargetDecisionCoordinatorTest,FRL02KTriggeredTargetExternalOwnershipAuditTest' '-Dsurefire.failIfNoSpecifiedTests=false' test
 mvn -pl forge-gui-desktop -am '-Dtest=TriggeredTargetDecisionCoordinatorTest,TriggeredTargetContinuationProcessTest,FRL02KTriggeredTargetExternalOwnershipAuditTest,DeterminismTraceV2Test,TargetDecisionProviderTest' '-Dsurefire.failIfNoSpecifiedTests=false' test
-mvn -pl forge-gui-desktop -am '-Dtest=FRL02KTriggeredTargetProviderAuditTest,DecisionPublicApiReflectionTest,PriorityActionDiagnosticsTest,FRL02KConfirmationAuditTest' '-Dsurefire.failIfNoSpecifiedTests=false' test
+mvn -pl forge-gui-desktop -am '-Dtest=FRL02KTriggeredTargetProviderAuditTest,FRL02KTriggeredTargetOwnershipAuditTest,DecisionPublicApiReflectionTest,PriorityActionDiagnosticsTest,FRL02KConfirmationAuditTest' '-Dsurefire.failIfNoSpecifiedTests=false' test
+mvn -pl forge-gui-desktop -am '-Dtest=FRL02KTriggeredTargetOwnershipAuditTest' '-Dsurefire.failIfNoSpecifiedTests=false' test
+mvn -pl forge-gui-desktop -am test
+mvn -pl forge-gui-desktop -am -DskipTests package
 mvn -pl forge-gui-desktop -am validate
 git diff --check
+git status --short --branch
+git rev-parse HEAD
+git rev-list --left-right --count origin/master...HEAD
+git diff --stat origin/master...HEAD
 ```
 
-The first selector was the P2 RED/GREEN gate: the pre-test baseline was 50/50; after writing the three retained
-tests, the RED-stage run was already 53/53 with 0 failures/errors/skips because the existing production seam
-already satisfied the requested behavior; the GREEN rerun was also 53/53. The combined C2A selector then passed
-90/90, consisting of the 81/81 pre-existing focused core, 3/3 retained P2 orchestration tests, 3/3 prior and
-3/3 latest review regressions, and the retained/API/confirmation selector passed 20/20. `validate`
-completed with 0 configured Checkstyle violations in all six reactor modules, and `git diff --check` exited 0.
-A separate combined attempt that included the long canonical ownership workload exceeded the 120-second bounded
-command limit and was terminated; it is not evidence of a pass. The earlier Task 12 broad and package commands
-remain historical and are intentionally not repeated here.
+Recorded outcomes were, in order: A Maven `BUILD SUCCESS`, 90/90, 0 failures, 0 errors, 0 skips; B Maven
+`BUILD SUCCESS`, 21/21, 0 failures, 0 errors, 0 skips; C Maven `BUILD SUCCESS`, 1/1, 0 failures, 0 errors,
+0 skips, with no child timeout; D Maven `BUILD SUCCESS`, reactor 738 total, 732 passed, 0 failures, 0 errors,
+6 configured skips; E Maven `BUILD SUCCESS` for all six reactor modules; and F Maven `BUILD SUCCESS`, 0
+Checkstyle violations in all six modules, `git diff --check` exit 0, clean pre-document status,
+`git rev-parse HEAD` `dbd2d32d6f395c51f44c3b31d1b67f8cf77f8181`, ahead count `0 34`, and the origin/master diff
+stat of 15 files changed, 5,339 insertions, and 1 deletion. The six D skips are the configured
+`NetworkPlayIntegrationTest` cases listed in the evidence matrix; no failure, error, or timeout was observed.
+
+The generated current reports reconciled A through `forge-gui-desktop\target\surefire-reports\testng-results.xml`
+and the module TestNG reports used for D. Older report files in the same report directory were not used to inflate
+or replace the current counts.
 
 The prior Task 12 commands, retained for historical traceability only, were:
 
@@ -337,13 +348,14 @@ The child now installs a non-null controller resolver that increments an `Atomic
 zero resolver count is therefore an observed boundary result rather than a hard-coded fixture value.
 
 The prior audit's 84-test A aggregate was a historical individual JUnit/TestNG snapshot and is not a current count.
-The current JUnit/TestNG class-level reports record `TriggeredTargetDecisionCoordinatorTest` 33/33 and
-`FRL02KTriggeredTargetExternalOwnershipAuditTest` 20/20; the current full named C2A selector is 90/90. The new
-coordinator-seam tests assert the external zero/one/many orchestration evidence, while the external-ownership
-methods continue to assert the native/external choice and callback-count evidence; none invoke the native Forge-AI
-callback on an externally owned route.
+The current A reports record `TriggeredTargetDecisionCoordinatorTest` 33/33 and
+`FRL02KTriggeredTargetExternalOwnershipAuditTest` 20/20; the current full named C2A selector is 90/90. B's
+retained/API/confirmation subtotal is 20/20, and the exact requested B selector is 21/21 after adding the separate
+ownership audit 1/1. The coordinator-seam tests assert the external zero/one/many orchestration evidence, while the
+external-ownership methods continue to assert the native/external choice and callback-count evidence; none invoke
+the native Forge-AI callback on an externally owned route.
 
-The canonical reference command retained by the existing audit is:
+The canonical native workload command represented by C is:
 
 ```text
 java [diagnostic properties] -cp ..\forge-gui-desktop\target\forge-gui-desktop-2.0.14-SNAPSHOT-jar-with-dependencies.jar forge.view.Main sim -d "Izzet Guild Kit" "Dimir Guild Kit" -n 10 -s 20260810 -q
@@ -371,10 +383,8 @@ Blood Operative ETB TARGET: SUPPORTED (exact profile only)
 global triggered TARGET: OPEN
 Blood CONFIRMATION: OPEN
 global CONFIRMATION: OPEN
-Current bounded C2A gates: BOUNDED_PASS (81/81 pre-existing focused core; 3/3 P2 retained orchestration tests; 3/3 prior final-review regressions; 3/3 latest-review regressions;
-90/90 full named selector; 20/20 retained/API/confirmation; validate/checkstyle clean at code/test HEAD
-c44c80c6d9f67f1f480ca246a8bf804805fdd6c7)
-Task 12 broad reactor/package: HISTORICAL ONLY (not current after production routing changes)
-FRL_02K_C2A_FINAL_VALIDATED: NOT CLAIMED (broad/package/canonical revalidation remains required)
-FRL_02K_C2A_REVALIDATION_REQUIRED
+Current final Task 12 gates: FINAL_VALIDATED (A 90/90; B 21/21 exact selector with 20/20 retained/API/confirmation subtotal; C 1/1 canonical native workload; D 738 total, 732 passed, 0 failures, 0 errors, 6 configured skips; E package success; F validate/checkstyle clean and diff check clean at verification HEAD
+dbd2d32d6f395c51f44c3b31d1b67f8cf77f8181)
+Task 12 broad reactor/package/canonical: CURRENT PASS (six configured NetworkPlayIntegrationTest skips remain accepted unless stress validation is explicitly requested)
+FRL_02K_C2A_FINAL_VALIDATED
 ```
