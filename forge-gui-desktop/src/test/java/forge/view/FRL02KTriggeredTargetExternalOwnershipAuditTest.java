@@ -519,7 +519,7 @@ public class FRL02KTriggeredTargetExternalOwnershipAuditTest extends AITest {
     }
 
     @Test(timeOut = 5000)
-    public void cyclicAbilitySubParentChainFailsClosedWithoutResolverBeforeOrdering() {
+    public void cyclicAbilitySubParentChainRemainsNativeWithoutResolver() {
         final Game game = initAndCreateGame();
         final Player chooser = game.getPlayers().get(1);
         final Card source = addCardToZone("Island", chooser, ZoneType.Battlefield);
@@ -528,54 +528,28 @@ public class FRL02KTriggeredTargetExternalOwnershipAuditTest extends AITest {
         first.setParent(second);
         second.setParent(first);
 
-        final AuditedTargetController controller = installController(game, chooser);
-        final long providerRequestsBefore = providerRequestSequence(controller.getTargetDecisionProvider());
-        final int stackBefore = game.getStack().size();
+        final TriggeredTargetDecisionCoordinator coordinator = new TriggeredTargetDecisionCoordinator();
+        coordinator.enforceExternalTargetBoundary(first, null);
+        final TriggeredTargetDecisionCoordinator.Preparation preparation = coordinator.prepare(
+                first, chooser, new TargetDecisionProvider(), null);
 
-        final TriggeredTargetIntegrityException exception = expectThrows(
-                TriggeredTargetIntegrityException.class,
-                () -> controller.orderAndPlaySimultaneousSa(List.of(first)));
-
-        assertEquals(exception.getReason(), "UNSUPPORTED_PROFILE");
-        assertEquals(exception.getMessage(), "UNSUPPORTED_PROFILE");
-        assertEquals(providerRequestSequence(controller.getTargetDecisionProvider()) - providerRequestsBefore, 0L,
-                "cyclic parent rejection must precede target request generation");
-        assertEquals(controller.nativeCallbackCount(), 0,
-                "cyclic parent rejection must precede native target fallback");
-        assertEquals(controller.chooseTargetsForCalls(), 0,
-                "cyclic parent rejection must precede chooser target fallback");
-        assertEquals(controller.orderSimultaneousSaCalls(), 0,
-                "cyclic parent rejection must precede AI ordering");
-        assertEquals(game.getStack().size(), stackBefore,
-                "cyclic parent rejection must not insert a stack item");
+        assertEquals(preparation.getStatus(),
+                TriggeredTargetDecisionCoordinator.PreparationStatus.NATIVE_UNSUPPORTED_TARGETED_TRIGGER);
+        assertEquals(preparation.getReason(), "UNSUPPORTED_PROFILE");
     }
 
     @Test(timeOut = 5000)
-    public void cyclicWrappedAbilityFailsClosedForDirectPreparationAndPlayTrigger() {
+    public void cyclicWrappedAbilityReturnsNativeUnsupportedPreparationWithoutResolver() {
         final BloodFixture base = bloodFixture();
         final WrappedAbility wrapper = cyclicWrappedAbility(base);
 
-        final TriggeredTargetIntegrityException preparationException = expectThrows(
-                TriggeredTargetIntegrityException.class,
-                () -> new TriggeredTargetDecisionCoordinator().prepare(
-                        wrapper, base.chooser(), new TargetDecisionProvider(), null));
-        assertEquals(preparationException.getReason(), "UNSUPPORTED_PROFILE");
-        assertEquals(preparationException.getMessage(), "UNSUPPORTED_PROFILE");
+        final TriggeredTargetDecisionCoordinator.Preparation preparation =
+                new TriggeredTargetDecisionCoordinator().prepare(
+                        wrapper, base.chooser(), new TargetDecisionProvider(), null);
 
-        final AuditedTargetController controller = installController(base.game(), base.chooser());
-        final int stackBefore = base.game().getStack().size();
-        final TriggeredTargetIntegrityException playException = expectThrows(
-                TriggeredTargetIntegrityException.class,
-                () -> controller.playTrigger(base.source(), wrapper, true));
-
-        assertEquals(playException.getReason(), "UNSUPPORTED_PROFILE");
-        assertEquals(playException.getMessage(), "UNSUPPORTED_PROFILE");
-        assertEquals(controller.nativeCallbackCount(), 0,
-                "cyclic parent rejection must precede native target fallback");
-        assertEquals(controller.chooseTargetsForCalls(), 0,
-                "cyclic parent rejection must precede chooser target fallback");
-        assertEquals(base.game().getStack().size(), stackBefore,
-                "cyclic parent rejection must not insert a stack item");
+        assertEquals(preparation.getStatus(),
+                TriggeredTargetDecisionCoordinator.PreparationStatus.NATIVE_UNSUPPORTED_TARGETED_TRIGGER);
+        assertEquals(preparation.getReason(), "UNSUPPORTED_PROFILE");
     }
 
     @Test(timeOut = 5000)

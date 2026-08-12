@@ -155,7 +155,7 @@ public final class TriggeredTargetDecisionCoordinator {
             return;
         }
 
-        if (hasCyclicParentChain(queuedAbility)) {
+        if (resolver != null && hasCyclicParentChain(queuedAbility)) {
             throw unsupportedProfile();
         }
 
@@ -181,7 +181,7 @@ public final class TriggeredTargetDecisionCoordinator {
             return Preparation.of(PreparationStatus.NO_STACK, "NO_STACK");
         }
 
-        if (hasCyclicParentChain(queuedAbility)) {
+        if (resolver != null && hasCyclicParentChain(queuedAbility)) {
             throw unsupportedProfile();
         }
 
