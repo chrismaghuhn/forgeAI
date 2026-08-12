@@ -5,6 +5,7 @@ import forge.ai.LobbyPlayerAi;
 import forge.ai.PlayerControllerAi;
 import forge.game.Game;
 import forge.game.ability.AbilityFactory;
+import forge.game.ability.ApiType;
 import forge.game.card.Card;
 import forge.game.card.CardFactory;
 import forge.card.CardStateName;
@@ -15,6 +16,7 @@ import forge.game.decision.TargetCandidateKind;
 import forge.game.decision.TargetDecisionProvider;
 import forge.game.decision.TriggeredTargetIntegrityException;
 import forge.game.player.Player;
+import forge.game.spellability.AbilitySub;
 import forge.game.spellability.SpellAbility;
 import forge.game.trigger.Trigger;
 import forge.game.trigger.TriggerType;
@@ -292,6 +294,8 @@ public class FRL02KTriggeredTargetExternalOwnershipAuditTest extends AITest {
 
         assertEquals(exception.getReason(), "UNSUPPORTED_PROFILE");
         assertEquals(resolverCalls.get(), 0);
+        assertEquals(controller.orderSimultaneousSaCalls(), 0,
+                "unsupported copied targeted triggers must fail before AI ordering");
         assertEquals(controller.nativeCallbackCount(), 0);
         assertEquals(controller.chooseTargetsForCalls(), 0);
         assertEquals(fixture.game().getStack().size(), stackBefore,
@@ -319,10 +323,50 @@ public class FRL02KTriggeredTargetExternalOwnershipAuditTest extends AITest {
 
         assertEquals(exception.getReason(), "UNSUPPORTED_PROFILE");
         assertEquals(resolverCalls.get(), 0);
+        assertEquals(controller.orderSimultaneousSaCalls(), 0,
+                "unsupported non-wrapped targeted triggers must fail before AI ordering");
         assertEquals(controller.nativeCallbackCount(), 0);
         assertEquals(controller.chooseTargetsForCalls(), 0);
         assertEquals(fixture.game().getStack().size(), stackBefore,
                 "unsupported non-wrapped targeted triggers must not be inserted into the stack");
+    }
+
+    @Test
+    public void targetedCharmModeIsRejectedBeforeCharmChoice() {
+        final Game game = initAndCreateGame();
+        final Player chooser = game.getPlayers().get(1);
+        final Card source = addCardToZone("Aven Surveyor", chooser, ZoneType.Battlefield);
+        final Trigger trigger = source.getTriggers().stream()
+                .filter(candidate -> candidate.getMode() == TriggerType.ChangesZone)
+                .filter(candidate -> "TrigCharm".equals(candidate.getParam("Execute")))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("Aven Surveyor Charm trigger fixture is unavailable"));
+        final SpellAbility ability = trigger.ensureAbility();
+        ability.setActivatingPlayer(chooser);
+        final WrappedAbility wrapper = new WrappedAbility(trigger, ability, chooser);
+        assertEquals(wrapper.getApi(), ApiType.Charm);
+        assertTrue(wrapper.getAdditionalAbilityList("Choices").stream()
+                .anyMatch(SpellAbility::usesTargeting),
+                "the Charm fixture must expose a target-bearing mode before choice");
+
+        final AuditedTargetController controller = installController(game, chooser);
+        controller.setTargetDecisionResolver(request -> {
+            controller.incrementResolverCalls();
+            return null;
+        });
+        final int stackBefore = game.getStack().size();
+
+        final TriggeredTargetIntegrityException exception = expectThrows(
+                TriggeredTargetIntegrityException.class,
+                () -> controller.playTrigger(source, wrapper, true));
+
+        assertEquals(exception.getReason(), "UNSUPPORTED_PROFILE");
+        assertEquals(controller.resolverCalls(), 0,
+                "unsupported targeted Charm modes must fail before external target generation");
+        assertEquals(controller.chooseModeForAbilityCalls(), 0,
+                "unsupported targeted Charm modes must fail before Charm mode choice");
+        assertEquals(controller.nativeCallbackCount(), 0);
+        assertEquals(game.getStack().size(), stackBefore);
     }
 
     private BloodRun openBloodRun(final String directoryPrefix) throws Exception {
@@ -359,8 +403,12 @@ public class FRL02KTriggeredTargetExternalOwnershipAuditTest extends AITest {
     }
 
     private static AuditedTargetController installController(final BloodFixture fixture) {
-        final AuditedTargetController controller = new AuditedTargetController(fixture.game(), fixture.chooser());
-        fixture.chooser().dangerouslySetController(controller);
+        return installController(fixture.game(), fixture.chooser());
+    }
+
+    private static AuditedTargetController installController(final Game game, final Player chooser) {
+        final AuditedTargetController controller = new AuditedTargetController(game, chooser);
+        chooser.dangerouslySetController(controller);
         return controller;
     }
 
@@ -501,6 +549,8 @@ public class FRL02KTriggeredTargetExternalOwnershipAuditTest extends AITest {
     private static final class AuditedTargetController extends PlayerControllerAi {
         private int nativeCallbackCount;
         private int chooseTargetsForCalls;
+        private int chooseModeForAbilityCalls;
+        private int orderSimultaneousSaCalls;
         private int resolverCalls;
         private Card nativeTarget;
 
@@ -520,7 +570,15 @@ public class FRL02KTriggeredTargetExternalOwnershipAuditTest extends AITest {
 
         @Override
         public List<SpellAbility> orderSimultaneousSa(final List<SpellAbility> activePlayerSAs) {
+            orderSimultaneousSaCalls++;
             return activePlayerSAs;
+        }
+
+        @Override
+        public List<AbilitySub> chooseModeForAbility(final SpellAbility sa, final List<AbilitySub> possible,
+                final int min, final int num, final boolean allowRepeat) {
+            chooseModeForAbilityCalls++;
+            return super.chooseModeForAbility(sa, possible, min, num, allowRepeat);
         }
 
         @Override
@@ -540,6 +598,14 @@ public class FRL02KTriggeredTargetExternalOwnershipAuditTest extends AITest {
 
         private int chooseTargetsForCalls() {
             return chooseTargetsForCalls;
+        }
+
+        private int chooseModeForAbilityCalls() {
+            return chooseModeForAbilityCalls;
+        }
+
+        private int orderSimultaneousSaCalls() {
+            return orderSimultaneousSaCalls;
         }
 
         private Card nativeTarget() {

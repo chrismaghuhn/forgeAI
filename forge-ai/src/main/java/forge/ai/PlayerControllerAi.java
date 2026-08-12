@@ -24,6 +24,7 @@ import forge.game.decision.ChangesZoneAuditDiagnostics;
 import forge.game.decision.DownstreamCallbackFamily;
 import forge.game.decision.MulliganDiagnostics;
 import forge.game.decision.PriorityActionDiagnostics;
+import forge.game.decision.TargetDecisionProvider;
 import forge.game.decision.TriggeredTargetAuditDiagnostics;
 import forge.game.decision.TriggeredTargetDecisionCoordinator;
 import forge.game.keyword.Keyword;
@@ -1362,9 +1363,15 @@ public class PlayerControllerAi extends PlayerController {
 
     @Override
     public void orderAndPlaySimultaneousSa(List<SpellAbility> activePlayerSAs) {
+        final TargetDecisionProvider.Resolver resolver = getTargetDecisionResolver();
+        if (resolver != null) {
+            for (final SpellAbility sa : activePlayerSAs) {
+                enforceTriggeredTargetBoundary(sa, resolver);
+            }
+        }
         for (final SpellAbility sa : orderSimultaneousSa(activePlayerSAs)) {
             triggeredTargetDecisionCoordinator.enforceExternalTargetBoundary(sa,
-                    getTargetDecisionResolver());
+                    resolver);
             if (sa.isTrigger() && !sa.isCopied()) {
                 if (prepareSingleSa(sa.getHostCard(), sa, true)) {
                     ComputerUtil.playStack(sa, player, getGame());
@@ -1399,7 +1406,20 @@ public class PlayerControllerAi extends PlayerController {
         return brains.doTrigger(underlying, mandatory);
     }
 
+    private void enforceTriggeredTargetBoundary(final SpellAbility root,
+            final TargetDecisionProvider.Resolver resolver) {
+        for (SpellAbility current = root; current != null; current = current.getSubAbility()) {
+            triggeredTargetDecisionCoordinator.enforceExternalTargetBoundary(current, resolver);
+            if (current.getApi() == ApiType.Charm) {
+                for (final AbilitySub choice : current.getAdditionalAbilityList("Choices")) {
+                    triggeredTargetDecisionCoordinator.enforceExternalTargetBoundary(choice, resolver);
+                }
+            }
+        }
+    }
+
     private boolean prepareSingleSa(final Card host, SpellAbility sa, boolean isMandatory) {
+        enforceTriggeredTargetBoundary(sa, getTargetDecisionResolver());
         if (sa.getApi() == ApiType.Charm) {
             if (!CharmEffect.makeChoices(sa)) {
                 return false;
