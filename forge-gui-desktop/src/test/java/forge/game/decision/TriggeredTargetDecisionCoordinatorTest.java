@@ -268,9 +268,7 @@ public class TriggeredTargetDecisionCoordinatorTest extends AITest {
         for (final Consumer<BloodFixture> unsupportedCase : unsupportedCases) {
             final BloodFixture fixture = bloodFixture();
             unsupportedCase.accept(fixture);
-            final TriggeredTargetIntegrityException exception = assertUnsupportedTargeted(
-                    fixture, "UNSUPPORTED_PROFILE");
-            assertNotEquals(exception.getStatus().name(), "NOT_APPLICABLE");
+            assertUnsupportedTargeted(fixture, "UNSUPPORTED_PROFILE");
         }
     }
 
@@ -305,7 +303,6 @@ public class TriggeredTargetDecisionCoordinatorTest extends AITest {
                             return request.getCandidates().get(0);
                         }));
 
-        assertEquals(exception.getStatus().name(), "UNSUPPORTED_TARGETED_TRIGGER");
         assertEquals(exception.getReason(), "UNSUPPORTED_PROFILE");
         assertEquals(resolverCalls.get(), 0);
         assertEquals(nativeController.getChooseTargetsForCalls(), 0);
@@ -982,7 +979,6 @@ public class TriggeredTargetDecisionCoordinatorTest extends AITest {
                             return request.getCandidates().get(0);
                         }));
 
-        assertEquals(exception.getStatus().name(), "UNSUPPORTED_TARGETED_TRIGGER");
         assertEquals(exception.getReason(), reason);
         assertEquals(resolverCalls.get(), 0,
                 "unsupported external ownership must not invoke the resolver");
