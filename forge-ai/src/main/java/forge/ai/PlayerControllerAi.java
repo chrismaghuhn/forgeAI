@@ -1370,6 +1370,10 @@ public class PlayerControllerAi extends PlayerController {
         for (final SpellAbility sa : orderSimultaneousSa(activePlayerSAs)) {
             triggeredTargetDecisionCoordinator.enforceExternalTargetBoundary(sa,
                     resolver);
+            if (resolver == null && triggeredTargetDecisionCoordinator.isUnclassifiableForRouting(sa)) {
+                // Preserve resolver-null native ownership, but never stack-insert an unclassifiable malformed cycle.
+                continue;
+            }
             if (isTriggeredForC2aRouting(sa, resolver) && !sa.isCopied()) {
                 if (prepareSingleSa(sa.getHostCard(), sa, true)) {
                     ComputerUtil.playStack(sa, player, getGame());

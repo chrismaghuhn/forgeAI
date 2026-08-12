@@ -72,7 +72,16 @@ public final class TriggeredTargetDecisionCoordinator {
 
     /** Returns the native trigger classification without recursing through a cyclic parent graph. */
     public boolean isTriggerForRouting(final SpellAbility ability) {
-        return ability != null && !hasCyclicParentChain(ability) && ability.isTrigger();
+        return ability != null && !isUnclassifiableForRouting(ability) && ability.isTrigger();
+    }
+
+    /**
+     * Returns whether native routing cannot classify this ability without recursing through a malformed parent graph.
+     * A resolver-null caller preserves native ownership by dropping this unclassifiable route rather than treating it
+     * as an ordinary non-trigger and inserting it onto the stack.
+     */
+    public boolean isUnclassifiableForRouting(final SpellAbility ability) {
+        return ability != null && hasCyclicParentChain(ability);
     }
 
     /**

@@ -574,19 +574,17 @@ public class FRL02KTriggeredTargetExternalOwnershipAuditTest extends AITest {
     }
 
     @Test(timeOut = 5000)
-    public void cyclicAbilitySubParentChainPreflightRemainsNativeWithoutResolver() {
+    public void cyclicAbilitySubOrderedOutputIsDroppedWithoutResolver() {
         final Game game = initAndCreateGame();
         final Player chooser = game.getPlayers().get(1);
         final Card source = addCardToZone("Island", chooser, ZoneType.Battlefield);
         final AbilitySub first = new AbilitySub(ApiType.Draw, source, null, Map.of());
         final AbilitySub second = new AbilitySub(ApiType.Draw, source, null, Map.of());
-        final AbilitySub safeOrderedAbility = new AbilitySub(ApiType.Draw, source, null, Map.of());
         first.setParent(second);
         second.setParent(first);
-        safeOrderedAbility.setActivatingPlayer(chooser);
 
         final PreflightOnlyTargetController controller = installPreflightController(
-                game, chooser, safeOrderedAbility);
+                game, chooser, first);
         assertNull(controller.getTargetDecisionResolver());
         final long providerRequestsBefore = providerRequestSequence(controller.getTargetDecisionProvider());
         final int stackBefore = game.getStack().size();
@@ -594,17 +592,19 @@ public class FRL02KTriggeredTargetExternalOwnershipAuditTest extends AITest {
         controller.orderAndPlaySimultaneousSa(List.of(first));
 
         assertEquals(providerRequestSequence(controller.getTargetDecisionProvider()) - providerRequestsBefore, 0L,
-                "native cyclic handling must not enter the target provider seam");
+                "resolver-null cyclic handling must not enter the target provider seam");
+        assertEquals(controller.resolverCalls(), 0,
+                "resolver-null cyclic handling must remain native-owned without resolver calls");
         assertEquals(controller.nativeCallbackCount(), 0,
-                "native cyclic preflight must not invoke triggered target fallback");
+                "an unclassifiable cycle must not invoke native target fallback");
         assertEquals(controller.chooseTargetsForCalls(), 0,
-                "native cyclic preflight must not invoke chooser target fallback");
+                "an unclassifiable cycle must not invoke chooser target fallback");
         assertEquals(controller.chooseModeForAbilityCalls(), 0,
-                "native cyclic preflight must not invoke mode selection");
+                "an unclassifiable cycle must not invoke mode selection");
         assertEquals(controller.orderCalls(), 1,
-                "native cyclic preflight must still reach the controller ordering hook");
-        assertEquals(game.getStack().size(), stackBefore + 1,
-                "safe ordered follow-up must complete the second routing loop");
+                "resolver-null cyclic handling must still reach the controller ordering hook");
+        assertEquals(game.getStack().size(), stackBefore,
+                "an unclassifiable malformed cycle must not fall through to generic stack insertion");
     }
 
     @Test
@@ -1069,7 +1069,7 @@ public class FRL02KTriggeredTargetExternalOwnershipAuditTest extends AITest {
             return nativeTarget;
         }
 
-        private int resolverCalls() {
+        protected int resolverCalls() {
             return resolverCalls;
         }
 
