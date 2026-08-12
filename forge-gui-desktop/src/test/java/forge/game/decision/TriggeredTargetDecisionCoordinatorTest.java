@@ -992,8 +992,11 @@ public class TriggeredTargetDecisionCoordinatorTest extends AITest {
                     finished = true;
                 }
             } finally {
-                deleteTree(directory);
-                MyRandom.setRandom(previousRandom);
+                try {
+                    deleteTree(directory);
+                } finally {
+                    MyRandom.setRandom(previousRandom);
+                }
             }
         }
     }

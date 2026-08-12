@@ -1364,10 +1364,8 @@ public class PlayerControllerAi extends PlayerController {
     @Override
     public void orderAndPlaySimultaneousSa(List<SpellAbility> activePlayerSAs) {
         final TargetDecisionProvider.Resolver resolver = getTargetDecisionResolver();
-        if (resolver != null) {
-            for (final SpellAbility sa : activePlayerSAs) {
-                enforceTriggeredTargetBoundary(sa, resolver);
-            }
+        for (final SpellAbility sa : activePlayerSAs) {
+            enforceTriggeredTargetBoundary(sa, resolver);
         }
         for (final SpellAbility sa : orderSimultaneousSa(activePlayerSAs)) {
             triggeredTargetDecisionCoordinator.enforceExternalTargetBoundary(sa,
@@ -1409,16 +1407,17 @@ public class PlayerControllerAi extends PlayerController {
     private void enforceTriggeredTargetBoundary(final SpellAbility root,
             final TargetDecisionProvider.Resolver resolver) {
         final Set<SpellAbility> visited = Collections.newSetFromMap(new IdentityHashMap<>());
-        enforceTriggeredTargetBoundary(root, resolver, visited);
+        enforceTriggeredTargetBoundary(root, resolver, visited, false);
     }
 
     private void enforceTriggeredTargetBoundary(final SpellAbility current,
-            final TargetDecisionProvider.Resolver resolver, final Set<SpellAbility> visited) {
+            final TargetDecisionProvider.Resolver resolver, final Set<SpellAbility> visited,
+            final boolean triggeredAncestor) {
         if (current == null || !visited.add(current)) {
             return;
         }
 
-        triggeredTargetDecisionCoordinator.enforceExternalTargetBoundary(current, resolver);
+        triggeredTargetDecisionCoordinator.enforceExternalTargetBoundary(current, resolver, triggeredAncestor);
         enforceTriggeredTargetChildren(current, resolver, visited);
         if (current instanceof WrappedAbility wrapper) {
             // WrappedAbility delegates most child edges to its live ability but not the additional single-ability map.
@@ -1432,13 +1431,13 @@ public class PlayerControllerAi extends PlayerController {
         if (owner == null) {
             return;
         }
-        enforceTriggeredTargetBoundary(owner.getSubAbility(), resolver, visited);
+        enforceTriggeredTargetBoundary(owner.getSubAbility(), resolver, visited, true);
         for (final SpellAbility child : owner.getAdditionalAbilities().values()) {
-            enforceTriggeredTargetBoundary(child, resolver, visited);
+            enforceTriggeredTargetBoundary(child, resolver, visited, true);
         }
         for (final List<AbilitySub> children : owner.getAdditionalAbilityLists().values()) {
             for (final AbilitySub child : children) {
-                enforceTriggeredTargetBoundary(child, resolver, visited);
+                enforceTriggeredTargetBoundary(child, resolver, visited, true);
             }
         }
     }

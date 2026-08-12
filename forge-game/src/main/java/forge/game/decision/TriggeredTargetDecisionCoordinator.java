@@ -139,12 +139,31 @@ public final class TriggeredTargetDecisionCoordinator {
      */
     public void enforceExternalTargetBoundary(final SpellAbility queuedAbility,
             final TargetDecisionProvider.Resolver resolver) {
+        enforceExternalTargetBoundary(queuedAbility, resolver, false);
+    }
+
+    /**
+     * Enforces the boundary for a queued ability or a generic child reached from one.
+     *
+     * <p>Generic additional children do not inherit the trigger through their parent edge, so a
+     * targeted child is still rejected when external ownership is active even though it is not
+     * independently classified as a trigger. Standalone non-triggers remain not applicable.</p>
+     */
+    public void enforceExternalTargetBoundary(final SpellAbility queuedAbility,
+            final TargetDecisionProvider.Resolver resolver, final boolean triggeredAncestor) {
         if (queuedAbility == null) {
             return;
         }
 
+        if (hasCyclicParentChain(queuedAbility)) {
+            throw unsupportedProfile();
+        }
+
         final Admission admission = evaluate(queuedAbility, implicitChooser(queuedAbility));
         if (admission.classification == Classification.NOT_APPLICABLE) {
+            if (triggeredAncestor && resolver != null && isTargeted(queuedAbility)) {
+                throw unsupportedProfile();
+            }
             return;
         }
         if (admission.classification == Classification.ADMITTED) {
@@ -160,6 +179,10 @@ public final class TriggeredTargetDecisionCoordinator {
             final TargetDecisionProvider provider, final TargetDecisionProvider.Resolver resolver) {
         if (queuedAbility == null) {
             return Preparation.of(PreparationStatus.NO_STACK, "NO_STACK");
+        }
+
+        if (hasCyclicParentChain(queuedAbility)) {
+            throw unsupportedProfile();
         }
 
         final Admission admission = evaluate(queuedAbility, chooser);
@@ -316,6 +339,19 @@ public final class TriggeredTargetDecisionCoordinator {
 
     private static TriggeredTargetIntegrityException mappingFailed() {
         return new TriggeredTargetIntegrityException(TriggeredTargetIntegrityException.Reason.MAPPING_FAILED);
+    }
+
+    private static TriggeredTargetIntegrityException unsupportedProfile() {
+        return new TriggeredTargetIntegrityException(
+                TriggeredTargetIntegrityException.Reason.UNSUPPORTED_PROFILE);
+    }
+
+    private static boolean isTargeted(final SpellAbility ability) {
+        try {
+            return ability.usesTargeting();
+        } catch (final RuntimeException ex) {
+            throw unsupportedProfile();
+        }
     }
 
     private static Admission evaluate(final SpellAbility queuedAbility, final Player chooser) {

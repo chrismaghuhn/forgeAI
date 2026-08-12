@@ -4,6 +4,7 @@ import forge.ai.AITest;
 import forge.ai.LobbyPlayerAi;
 import forge.ai.PlayerControllerAi;
 import forge.game.Game;
+import forge.game.ability.AbilityApiBased;
 import forge.game.ability.AbilityFactory;
 import forge.game.ability.ApiType;
 import forge.game.card.Card;
@@ -16,9 +17,11 @@ import forge.game.decision.TargetCandidateKind;
 import forge.game.decision.TargetDecisionProvider;
 import forge.game.decision.TriggeredTargetDecisionCoordinator;
 import forge.game.decision.TriggeredTargetIntegrityException;
+import forge.game.cost.Cost;
 import forge.game.player.Player;
 import forge.game.spellability.AbilitySub;
 import forge.game.spellability.SpellAbility;
+import forge.game.spellability.TargetRestrictions;
 import forge.game.trigger.Trigger;
 import forge.game.trigger.TriggerType;
 import forge.game.trigger.WrappedAbility;
@@ -454,7 +457,6 @@ public class FRL02KTriggeredTargetExternalOwnershipAuditTest extends AITest {
         final AbilitySub second = new AbilitySub(ApiType.Draw, source, null, Map.of());
         first.setParent(second);
         second.setParent(first);
-        new TriggeredTargetDecisionCoordinator().enforceExternalTargetBoundary(first, null);
 
         final AuditedTargetController controller = installController(game, chooser);
         controller.setTargetDecisionResolver(request -> {
@@ -482,6 +484,103 @@ public class FRL02KTriggeredTargetExternalOwnershipAuditTest extends AITest {
                 "cyclic parent rejection must precede AI ordering");
         assertEquals(game.getStack().size(), stackBefore,
                 "cyclic parent rejection must not insert a stack item");
+    }
+
+    @Test(timeOut = 5000)
+    public void cyclicAbilitySubParentChainFailsClosedWithoutResolverBeforeOrdering() {
+        final Game game = initAndCreateGame();
+        final Player chooser = game.getPlayers().get(1);
+        final Card source = addCardToZone("Island", chooser, ZoneType.Battlefield);
+        final AbilitySub first = new AbilitySub(ApiType.Draw, source, null, Map.of());
+        final AbilitySub second = new AbilitySub(ApiType.Draw, source, null, Map.of());
+        first.setParent(second);
+        second.setParent(first);
+
+        final AuditedTargetController controller = installController(game, chooser);
+        final long providerRequestsBefore = providerRequestSequence(controller.getTargetDecisionProvider());
+        final int stackBefore = game.getStack().size();
+
+        final TriggeredTargetIntegrityException exception = expectThrows(
+                TriggeredTargetIntegrityException.class,
+                () -> controller.orderAndPlaySimultaneousSa(List.of(first)));
+
+        assertEquals(exception.getReason(), "UNSUPPORTED_PROFILE");
+        assertEquals(exception.getMessage(), "UNSUPPORTED_PROFILE");
+        assertEquals(providerRequestSequence(controller.getTargetDecisionProvider()) - providerRequestsBefore, 0L,
+                "cyclic parent rejection must precede target request generation");
+        assertEquals(controller.nativeCallbackCount(), 0,
+                "cyclic parent rejection must precede native target fallback");
+        assertEquals(controller.chooseTargetsForCalls(), 0,
+                "cyclic parent rejection must precede chooser target fallback");
+        assertEquals(controller.orderSimultaneousSaCalls(), 0,
+                "cyclic parent rejection must precede AI ordering");
+        assertEquals(game.getStack().size(), stackBefore,
+                "cyclic parent rejection must not insert a stack item");
+    }
+
+    @Test(timeOut = 5000)
+    public void cyclicWrappedAbilityFailsClosedForDirectPreparationAndPlayTrigger() {
+        final BloodFixture base = bloodFixture();
+        final WrappedAbility wrapper = cyclicWrappedAbility(base);
+
+        final TriggeredTargetIntegrityException preparationException = expectThrows(
+                TriggeredTargetIntegrityException.class,
+                () -> new TriggeredTargetDecisionCoordinator().prepare(
+                        wrapper, base.chooser(), new TargetDecisionProvider(), null));
+        assertEquals(preparationException.getReason(), "UNSUPPORTED_PROFILE");
+        assertEquals(preparationException.getMessage(), "UNSUPPORTED_PROFILE");
+
+        final AuditedTargetController controller = installController(base.game(), base.chooser());
+        final int stackBefore = base.game().getStack().size();
+        final TriggeredTargetIntegrityException playException = expectThrows(
+                TriggeredTargetIntegrityException.class,
+                () -> controller.playTrigger(base.source(), wrapper, true));
+
+        assertEquals(playException.getReason(), "UNSUPPORTED_PROFILE");
+        assertEquals(playException.getMessage(), "UNSUPPORTED_PROFILE");
+        assertEquals(controller.nativeCallbackCount(), 0,
+                "cyclic parent rejection must precede native target fallback");
+        assertEquals(controller.chooseTargetsForCalls(), 0,
+                "cyclic parent rejection must precede chooser target fallback");
+        assertEquals(base.game().getStack().size(), stackBefore,
+                "cyclic parent rejection must not insert a stack item");
+    }
+
+    @Test(timeOut = 5000)
+    public void targetedNonAbilityAdditionalChildFailsClosedUnderTriggeredAncestor() {
+        final NonAbilityAdditionalChildFixture fixture = targetedNonAbilityAdditionalChildFixture();
+        final AuditedTargetController controller = installController(fixture.game(), fixture.chooser());
+        controller.setTargetDecisionResolver(request -> {
+            controller.incrementResolverCalls();
+            return null;
+        });
+        final long providerRequestsBefore = providerRequestSequence(controller.getTargetDecisionProvider());
+        final int stackBefore = fixture.game().getStack().size();
+
+        final TriggeredTargetIntegrityException exception = expectThrows(
+                TriggeredTargetIntegrityException.class,
+                () -> controller.orderAndPlaySimultaneousSa(List.of(fixture.wrapper())));
+
+        assertEquals(exception.getReason(), "UNSUPPORTED_PROFILE");
+        assertEquals(exception.getMessage(), "UNSUPPORTED_PROFILE");
+        assertFalse(fixture.wrapper().usesTargeting(), "the root fixture must be non-targeting");
+        assertTrue(fixture.targetedChild().usesTargeting(), "the additional child must be targeted");
+        assertNull(fixture.targetedChild().getTrigger(),
+                "the generic additional child must not inherit a trigger through its parent edge");
+        assertEquals(providerRequestSequence(controller.getTargetDecisionProvider()) - providerRequestsBefore, 0L,
+                "additional-child rejection must precede target request generation");
+        assertEquals(controller.resolverCalls(), 0,
+                "additional-child rejection must precede external target resolution");
+        assertEquals(controller.nativeCallbackCount(), 0,
+                "additional-child rejection must precede native target fallback");
+        assertEquals(controller.chooseTargetsForCalls(), 0,
+                "additional-child rejection must precede chooser target fallback");
+        assertEquals(controller.chooseModeForAbilityCalls(), 0,
+                "additional-child rejection must precede mode selection");
+        assertEquals(controller.orderSimultaneousSaCalls(), 0,
+                "additional-child rejection must precede AI ordering");
+        assertEquals(fixture.game().getStack().size(), stackBefore,
+                "additional-child rejection must not insert a stack item");
     }
 
     private AdditionalChildFixture targetedAdditionalChildFixture(final String routeName,
@@ -514,6 +613,47 @@ public class FRL02KTriggeredTargetExternalOwnershipAuditTest extends AITest {
             ability.setAdditionalAbility(routeName, targetedChild);
         }
         return new AdditionalChildFixture(game, chooser, wrapper, targetedChild);
+    }
+
+    private NonAbilityAdditionalChildFixture targetedNonAbilityAdditionalChildFixture() {
+        final Game game = initAndCreateGame();
+        final Player chooser = game.getPlayers().get(1);
+        final Card source = addCardToZone("Aven Surveyor", chooser, ZoneType.Battlefield);
+        final Trigger trigger = source.getTriggers().stream()
+                .filter(candidate -> candidate.getMode() == TriggerType.ChangesZone)
+                .filter(candidate -> "TrigCharm".equals(candidate.getParam("Execute")))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("Aven Surveyor Charm trigger fixture is unavailable"));
+        final SpellAbility ability = trigger.ensureAbility();
+        ability.setActivatingPlayer(chooser);
+        final WrappedAbility wrapper = new WrappedAbility(trigger, ability, chooser);
+        final AbilitySub nonTargetingHead = wrapper.getAdditionalAbilityList("Choices").stream()
+                .filter(choice -> !choice.usesTargeting())
+                .filter(choice -> choice.getSubAbility() == null)
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("Aven Surveyor lacks a usable non-targeting Charm head"));
+        ability.setAdditionalAbilityList("Choices", List.of(nonTargetingHead));
+
+        final Map<String, String> targetParams = Map.of(
+                "ValidTgts", "Card",
+                "TargetMin", "1",
+                "TargetMax", "1");
+        final AbilityApiBased targetedChild = new AbilityApiBased(
+                ApiType.Draw, source, Cost.Zero, new TargetRestrictions(targetParams), Map.of("NumCards", "1"));
+        targetedChild.setActivatingPlayer(chooser);
+        ability.setAdditionalAbility("GenericTargetedChild", targetedChild);
+        return new NonAbilityAdditionalChildFixture(game, chooser, wrapper, targetedChild);
+    }
+
+    private static WrappedAbility cyclicWrappedAbility(final BloodFixture base) {
+        final Map<String, String> targetParams = Map.of("ValidTgts", "Card");
+        final AbilitySub first = new AbilitySub(
+                ApiType.Draw, base.source(), new TargetRestrictions(targetParams), Map.of());
+        final AbilitySub second = new AbilitySub(ApiType.Draw, base.source(), null, Map.of());
+        first.setParent(second);
+        second.setParent(first);
+        first.setActivatingPlayer(base.chooser());
+        return new WrappedAbility(base.trigger(), first, base.chooser());
     }
 
     private NestedCharmFixture nestedCharmFixture() {
@@ -550,13 +690,22 @@ public class FRL02KTriggeredTargetExternalOwnershipAuditTest extends AITest {
         final Random previousRandom = MyRandom.getRandom();
         final DeterminismAuditRandom auditRandom = new DeterminismAuditRandom(DETERMINISTIC_SEED);
         MyRandom.setRandom(auditRandom);
+        Path traceDirectory = null;
         try {
             final BloodFixture fixture = bloodFixture();
-            final Path traceDirectory = Files.createTempDirectory(directoryPrefix);
+            traceDirectory = Files.createTempDirectory(directoryPrefix);
             final DeterminismTrace trace = DeterminismTrace.attach(fixture.game(), 0, auditRandom, traceDirectory);
             return new BloodRun(fixture, trace, traceDirectory, previousRandom);
         } catch (final Exception ex) {
-            MyRandom.setRandom(previousRandom);
+            try {
+                if (traceDirectory != null) {
+                    deleteTree(traceDirectory);
+                }
+            } catch (final IOException ignored) {
+                // Preserve the original trace setup failure.
+            } finally {
+                MyRandom.setRandom(previousRandom);
+            }
             throw ex;
         }
     }
@@ -832,6 +981,10 @@ public class FRL02KTriggeredTargetExternalOwnershipAuditTest extends AITest {
 
     private record AdditionalChildFixture(Game game, Player chooser, WrappedAbility wrapper,
             AbilitySub targetedChild) {
+    }
+
+    private record NonAbilityAdditionalChildFixture(Game game, Player chooser, WrappedAbility wrapper,
+            SpellAbility targetedChild) {
     }
 
     private static final class BloodRun implements AutoCloseable {
