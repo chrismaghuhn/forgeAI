@@ -1503,7 +1503,13 @@ public class PlayerControllerAi extends PlayerController {
                 return triggeredTargetDecisionCoordinator.completeNative(preparation, nativeResult);
             }
             case NOT_APPLICABLE:
+                break;
             case NATIVE_UNSUPPORTED_TARGETED_TRIGGER:
+                if (resolver == null && triggeredTargetDecisionCoordinator.isUnclassifiableForRouting(sa)) {
+                    TriggeredTargetAuditDiagnostics.recordTargetPreparation(sa,
+                            "PlayerControllerAi.prepareSingleSa->TriggeredTargetDecisionCoordinator", false);
+                    return false;
+                }
                 break;
             default:
                 throw new IllegalStateException("Unhandled triggered target preparation status: "

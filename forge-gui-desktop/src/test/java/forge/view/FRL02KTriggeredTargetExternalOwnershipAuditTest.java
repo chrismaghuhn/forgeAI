@@ -639,6 +639,34 @@ public class FRL02KTriggeredTargetExternalOwnershipAuditTest extends AITest {
     }
 
     @Test(timeOut = 5000)
+    public void cyclicWrappedAbilityDirectPlayTriggerDropsUnclassifiableRouteWithoutResolver() {
+        final BloodFixture base = bloodFixture();
+        final WrappedAbility wrapper = cyclicWrappedAbility(base);
+        final AuditedTargetController controller = installController(base);
+        assertNull(controller.getTargetDecisionResolver());
+        final long providerRequestsBefore = providerRequestSequence(controller.getTargetDecisionProvider());
+        final int stackBefore = base.game().getStack().size();
+
+        assertFalse(controller.playTrigger(base.source(), wrapper, true));
+
+        assertEquals(providerRequestSequence(controller.getTargetDecisionProvider()) - providerRequestsBefore, 0L,
+                "an unclassifiable direct trigger must not enter the target provider seam");
+        assertEquals(controller.resolverCalls(), 0);
+        assertEquals(controller.nativeCallbackCount(), 0,
+                "an unclassifiable direct trigger must not invoke native target fallback");
+        assertEquals(controller.chooseTargetsForCalls(), 0,
+                "an unclassifiable direct trigger must not invoke chooser target fallback");
+        assertEquals(controller.chooseModeForAbilityCalls(), 0,
+                "an unclassifiable direct trigger must not invoke mode selection");
+        assertEquals(controller.playSpellAbilityNoStackCalls(), 0,
+                "an unclassifiable direct trigger must not resolve an ability");
+        assertNull(controller.nativeTarget());
+        assertTrue(wrapper.getWrappedAbility().getTargets().isEmpty());
+        assertEquals(base.game().getStack().size(), stackBefore,
+                "an unclassifiable direct trigger must not insert a stack item");
+    }
+
+    @Test(timeOut = 5000)
     public void targetedNonAbilityAdditionalChildFailsClosedUnderTriggeredAncestor() {
         final NonAbilityAdditionalChildFixture fixture = targetedNonAbilityAdditionalChildFixture();
         final AuditedTargetController controller = installController(fixture.game(), fixture.chooser());
@@ -1007,6 +1035,7 @@ public class FRL02KTriggeredTargetExternalOwnershipAuditTest extends AITest {
         private int nativeCallbackCount;
         private int chooseTargetsForCalls;
         private int chooseModeForAbilityCalls;
+        private int playSpellAbilityNoStackCalls;
         private int orderSimultaneousSaCalls;
         private int resolverCalls;
         private Card nativeTarget;
@@ -1045,6 +1074,12 @@ public class FRL02KTriggeredTargetExternalOwnershipAuditTest extends AITest {
         }
 
         @Override
+        public void playSpellAbilityNoStack(final SpellAbility effectSA, final boolean canSetupTargets) {
+            playSpellAbilityNoStackCalls++;
+            super.playSpellAbilityNoStack(effectSA, canSetupTargets);
+        }
+
+        @Override
         public boolean confirmTrigger(final WrappedAbility wrapper) {
             return true;
         }
@@ -1059,6 +1094,10 @@ public class FRL02KTriggeredTargetExternalOwnershipAuditTest extends AITest {
 
         protected int chooseModeForAbilityCalls() {
             return chooseModeForAbilityCalls;
+        }
+
+        protected int playSpellAbilityNoStackCalls() {
+            return playSpellAbilityNoStackCalls;
         }
 
         private int orderSimultaneousSaCalls() {
