@@ -19,6 +19,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /** Fresh-JVM proof that an active single-action continuation fails closed at the C2A boundary. */
 public final class TriggeredTargetContinuationChildMain {
@@ -60,7 +61,11 @@ public final class TriggeredTargetContinuationChildMain {
                     fixture.game(), fixture.chooser());
             final TargetDecisionProvider provider = nativeController.getTargetDecisionProvider();
             final long providerRequestStart = providerRequestSequence(provider);
-            final int resolverCalls = 0;
+            final AtomicInteger resolverCalls = new AtomicInteger();
+            nativeController.setTargetDecisionResolver(request -> {
+                resolverCalls.incrementAndGet();
+                return null;
+            });
             String reason = null;
             int providerRequests = -1;
             try {
@@ -83,9 +88,9 @@ public final class TriggeredTargetContinuationChildMain {
                 require("UNSUPPORTED_ACTION_CONTINUATION".equals(reason),
                         "unexpected continuation reason: " + reason);
                 require(providerRequests == 0, "target provider generated a request");
-                require(resolverCalls == 0, "resolver was invoked");
+                require(resolverCalls.get() == 0, "resolver was invoked");
                 require(nativeCalls == 0, "native target callback was invoked");
-                return new ProofResult(reason, providerRequests, resolverCalls, nativeCalls);
+                return new ProofResult(reason, providerRequests, resolverCalls.get(), nativeCalls);
             } finally {
                 PriorityActionDiagnostics.endAction();
             }

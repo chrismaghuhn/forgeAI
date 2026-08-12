@@ -14,7 +14,9 @@ import forge.game.trigger.WrappedAbility;
 import forge.game.zone.ZoneType;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -320,6 +322,9 @@ public final class TriggeredTargetDecisionCoordinator {
         if (queuedAbility == null) {
             return Admission.notApplicable();
         }
+        if (hasCyclicParentChain(queuedAbility)) {
+            return Admission.unsupported(TriggeredTargetIntegrityException.Reason.UNSUPPORTED_PROFILE);
+        }
 
         final Trigger trigger;
         try {
@@ -343,6 +348,27 @@ public final class TriggeredTargetDecisionCoordinator {
         } catch (final RuntimeException ex) {
             return Admission.unsupported(TriggeredTargetIntegrityException.Reason.UNSUPPORTED_PROFILE);
         }
+    }
+
+    private static boolean hasCyclicParentChain(final SpellAbility queuedAbility) {
+        final Set<SpellAbility> visited = Collections.newSetFromMap(new IdentityHashMap<>());
+        if (hasCyclicParentChain(queuedAbility, visited)) {
+            return true;
+        }
+        return queuedAbility instanceof WrappedAbility wrapper
+                && hasCyclicParentChain(wrapper.getWrappedAbility(), visited);
+    }
+
+    private static boolean hasCyclicParentChain(final SpellAbility start,
+            final Set<SpellAbility> visited) {
+        SpellAbility current = start;
+        while (current != null) {
+            if (!visited.add(current)) {
+                return true;
+            }
+            current = current.getParent();
+        }
+        return false;
     }
 
     private static Admission admitBlood(final WrappedAbility wrapper, final Player chooser,

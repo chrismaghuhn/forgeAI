@@ -1419,10 +1419,28 @@ public class PlayerControllerAi extends PlayerController {
         }
 
         triggeredTargetDecisionCoordinator.enforceExternalTargetBoundary(current, resolver);
-        for (final AbilitySub choice : current.getAdditionalAbilityList("Choices")) {
-            enforceTriggeredTargetBoundary(choice, resolver, visited);
+        enforceTriggeredTargetChildren(current, resolver, visited);
+        if (current instanceof WrappedAbility wrapper) {
+            // WrappedAbility delegates most child edges to its live ability but not the additional single-ability map.
+            // Traverse the delegate's edges without preflighting the admitted live ability as a separate node.
+            enforceTriggeredTargetChildren(wrapper.getWrappedAbility(), resolver, visited);
         }
-        enforceTriggeredTargetBoundary(current.getSubAbility(), resolver, visited);
+    }
+
+    private void enforceTriggeredTargetChildren(final SpellAbility owner,
+            final TargetDecisionProvider.Resolver resolver, final Set<SpellAbility> visited) {
+        if (owner == null) {
+            return;
+        }
+        enforceTriggeredTargetBoundary(owner.getSubAbility(), resolver, visited);
+        for (final SpellAbility child : owner.getAdditionalAbilities().values()) {
+            enforceTriggeredTargetBoundary(child, resolver, visited);
+        }
+        for (final List<AbilitySub> children : owner.getAdditionalAbilityLists().values()) {
+            for (final AbilitySub child : children) {
+                enforceTriggeredTargetBoundary(child, resolver, visited);
+            }
+        }
     }
 
     private boolean prepareSingleSa(final Card host, SpellAbility sa, boolean isMandatory) {
