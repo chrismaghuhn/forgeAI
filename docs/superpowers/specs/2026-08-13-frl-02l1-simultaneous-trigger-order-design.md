@@ -1,6 +1,6 @@
 # FRL-02L1 Exact SIMULTANEOUS_TRIGGER_ORDER Design Checkpoint
 
-Status: DESIGN_APPROVED
+Status: DESIGN_REVIEW_PENDING
 
 ## Checkpoint
 
@@ -15,11 +15,11 @@ Status: DESIGN_APPROVED
 The protected checkout remains clean and at the locked base. This design and
 the later implementation are isolated to the fresh worktree above.
 
-The user-approved design gates are:
+The current review gate is:
 
 ~~~text
 P0 = 0
-P1 = 0
+P1 = 0 in this revision; reviewer confirmation pending
 Approach 1 = approved
 20/20 canonical strategic sessions admitted = required
 ~~~
@@ -124,7 +124,8 @@ must not maintain a second, subtly different owner definition.
 The exact L1 profile admits only the strategic v0 shape proven by source
 inspection and the canonical workload:
 
-- input is a non-null list of at least two entries;
+- input is a non-null list with n >= 2 entries after the forced pre-admission
+  path has been handled;
 - each entry is a supported native WrappedAbility trigger entry;
 - the wrapped trigger is a supported non-static simultaneous trigger;
 - the source is face-up and publicly projectable to the choosing player;
@@ -166,6 +167,21 @@ The native identity guard is private and is never serialized or exposed to an
 agent. Descriptions and stack text are not used for identity or duplicate
 detection.
 
+Native identity validation is a separate integrity phase, not ordinary
+unsupported admission. A null entry, a repeated native entry identity, or any
+other malformed snapshot identity invariant is:
+
+~~~text
+SESSION_INTEGRITY_FAILURE
+resolver callback = 0
+native orderPlaySa callback = 0
+no L1 request and no stack insertion
+~~~
+
+This hard-fails regardless of resolver ownership. It must not enter the native
+fallback path. Unsupported projection, hidden source, and unsupported future
+shape remain `UNSUPPORTED_ADMISSION` and retain the ownership matrix below.
+
 ### 3.4 Admission ownership matrix
 
 The resolver is consulted only after exact admission:
@@ -174,13 +190,59 @@ The resolver is consulted only after exact admission:
 |---|---|---|
 | succeeds | null | native teacher ownership; one native callback; L1 trace requests are emitted |
 | succeeds | present | external ownership; resolver is captured once for the whole session; native callback is zero |
-| fails | null | zero L1 requests; return the original input and preserve native Forge behavior |
-| fails | present | sanitized hard failure; resolver callback is zero; native callback is zero; no stack insertion |
+| unsupported admission | null | zero L1 requests; invoke existing native `orderPlaySa` exactly as before and return its native result |
+| unsupported admission | present | sanitized hard failure; resolver callback is zero; native callback is zero; no stack insertion |
+| session integrity failure | either | sanitized hard failure; resolver callback is zero; native ordering callback is zero; no stack insertion |
 
 Admission failure is not MAPPING_FAILED. MAPPING_FAILED is reserved for a
 native callback that completed but could not be mapped to the admitted
 snapshot. External resolver failures are external hard failures and never
 fall back to native ownership.
+
+The resolver-null fallback is a literal delegation to the existing native
+`orderPlaySa` path. It preserves that path's supplied-list mutation, RNG
+consumption, heuristic ordering, returned list identity/order, and exception
+behavior. L1 must not substitute the original input or a normalized copy.
+
+### 3.5 Cardinality and forced pre-admission path
+
+Cardinality is handled before strategic L1 admission. A singleton is not an
+unsupported strategic projection.
+
+~~~text
+null list
+  malformed input
+  resolver == null -> invoke existing native orderPlaySa exactly as before;
+                     preserve its baseline behavior, including any baseline
+                     exception or input handling
+  resolver != null -> sanitized hard failure; resolver/native callbacks = 0;
+                     no L1 request and no stack insertion
+
+n = 0
+  no strategic session
+  0 ORDER requests
+  resolver != null -> resolver = 0, native callback = 0, return empty result
+  resolver == null -> invoke existing native orderPlaySa exactly as today and
+                     return its native result
+
+n = 1
+  no strategic session
+  0 ORDER requests
+  resolver != null -> resolver = 0, native callback = 0, return the sole entry
+                     unchanged
+  resolver == null -> invoke existing native orderPlaySa exactly as today and
+                     return its native singleton result unchanged
+
+n >= 2
+  perform private identity validation and strategic L1 admission
+~~~
+
+The resolver is never consulted for n <= 1. The native path for n <= 1 is
+still called exactly where the current controller path calls
+`AiController.orderPlaySa`; L1 does not replace, normalize, or short-circuit
+that native behavior for resolver-null ownership. For n >= 2, only
+`UNSUPPORTED_ADMISSION` may use that same native fallback. A
+`SESSION_INTEGRITY_FAILURE` never does.
 
 ## 4. Public contract
 
@@ -189,7 +251,8 @@ fall back to native ownership.
 The public item is value-only:
 
 ~~~text
-itemId: request-local deterministic ordinal
+itemId: session-local deterministic ordinal assigned once from the immutable
+        initial snapshot
 source: CardSelectionCard
 triggerType: TriggerType
 effectApi: ApiType
@@ -200,8 +263,10 @@ SpellAbility, WrappedAbility, Card, CardLKI, GameObject, Java identity, or
 private native handle. CardSelectionCard is used only when the visible face-up
 source can be safely projected.
 
-itemId is unique within the request/session snapshot and is the only public
-identity for an item. Two items may have the same source, trigger type, and API.
+itemId is assigned once before step 0 and remains stable in every later
+remaining set in the session. It is unique within the session snapshot and is
+the only public identity for an item. Two items may have the same source,
+trigger type, and API.
 
 ### 4.2 SimultaneousTriggerOrderContext
 
@@ -246,8 +311,9 @@ decisionSequenceId = null
 subdecisionIndex = null
 ~~~
 
-For n <= 1, L1 emits zero ORDER requests. The final remaining item is forced
-internally and is never exposed as a one-candidate request.
+For n <= 1, the forced pre-admission path emits zero ORDER requests. The final
+remaining item in an admitted session is forced internally and is never
+exposed as a one-candidate request.
 
 Candidates are serialized in deterministic item order. The set, cardinality,
 item IDs, candidate kinds, and semantic keys are all validated on every
@@ -286,8 +352,17 @@ external choices have validated and the full semantic order has been
 translated.
 
 Any null, foreign, previously selected, wrong-kind, stale, duplicate, or
-throwing external result is a sanitized hard failure. There is no native
-fallback, no partial stack insertion, and no MAPPING_FAILED result.
+throwing external result is a sanitized hard failure. If the current request
+has already been emitted, it is terminalized exactly once as:
+
+~~~text
+INVALID_EXTERNAL_CANDIDATE
+nativeCallbackCompleted = false
+mappingAttempted = false
+~~~
+
+There is no native fallback, no partial stack insertion, and no
+`TRACE_INCOMPLETE` result for this path.
 
 ### 5.2 Native owner
 
@@ -322,6 +397,18 @@ terminalized and step 1 created. Later requests are created one at a time from
 their exact remaining sets. They are not prebuilt before the native result is
 known.
 
+If `orderPlaySa` throws before returning a native permutation, the active step
+0 is terminalized exactly once as:
+
+~~~text
+NATIVE_CALLBACK_FAILURE
+nativeCallbackCompleted = false
+mappingAttempted = false
+~~~
+
+The failure is sanitized, no later request is created, no native fallback or
+stack insertion occurs, and the result is not `MAPPING_FAILED`.
+
 If the native permutation is invalid, only the active step 0 is closed as:
 
 ~~~text
@@ -333,6 +420,31 @@ mappingAttempted = true
 No step 1/step 2 request, teacher label, retry, sort, fallback, or stack
 insertion is allowed. No part of an invalid native permutation is published as
 a CHOSEN label.
+
+### 5.3 Terminal request contract
+
+Once a `REQUEST` record exists, that request receives exactly one terminal
+result. L1 must never intentionally leave an emitted ORDER request as
+`TRACE_INCOMPLETE`.
+
+The implementation must extend the typed `DECISION_TRACE_V2` result
+representation with the terminal ORDER result kinds
+`INVALID_EXTERNAL_CANDIDATE` and `NATIVE_CALLBACK_FAILURE`. They are not
+encoded as generic `TRACE_INCOMPLETE` records:
+
+| Terminal result | Meaning | Native callback | Mapping attempted |
+|---|---|---:|---:|
+| `CHOSEN` | valid native or external selection | owner-dependent | owner-dependent |
+| `MAPPING_FAILED` | native callback returned, then full permutation mapping failed | `true` | `true` |
+| `INVALID_EXTERNAL_CANDIDATE` | external resolver returned invalid data or threw | `false` | `false` |
+| `NATIVE_CALLBACK_FAILURE` | native callback threw before returning a permutation | `false` | `false` |
+
+`INVALID_EXTERNAL_CANDIDATE` and `NATIVE_CALLBACK_FAILURE` are terminal
+failures, not incomplete traces and not teacher labels. Their public status,
+exception, and trace reason are sanitized. `MAPPING_FAILED` is used only when
+the native callback completed normally and the returned full permutation could
+not be mapped to the immutable session snapshot. The training validator must
+exclude all three failure kinds from teacher-label admission.
 
 ## 6. Central LIFO translation
 
@@ -391,6 +503,12 @@ nativeCallbackCompleted = false
 mappingAttempted = false
 ~~~
 
+For an external invalidity after a request exists, record the terminal
+`INVALID_EXTERNAL_CANDIDATE` result with `false/false`. For a native callback
+that throws before returning, record the terminal `NATIVE_CALLBACK_FAILURE`
+result with `false/false`. Neither path may be represented as
+`TRACE_INCOMPLETE`.
+
 The forced final item has no request and no synthetic CHOSEN result. The session
 correlation uses orderSessionId; ActionContinuation, decisionSequenceId, and
 subdecisionIndex remain absent/null.
@@ -430,7 +548,7 @@ the production route is not exercised.
 | request shape | ORDER, exact profile, RESOLVE_FIRST, forced=false, null continuation fields |
 | cardinality | n=2 gives one request; n=3 gives two; n=4 gives three; n<=1 gives zero |
 | candidate authority | every request candidate list is exactly the current remaining set; no duplicated context list |
-| key stability | deterministic item IDs, semantic keys, candidate order, and request/session serialization |
+| key stability | session-local item IDs are assigned once from the immutable initial snapshot and remain stable across every step; semantic keys, candidate order, and request/session serialization are deterministic |
 | session IDs | repeated equivalent runs produce equivalent deterministic orderSessionId values; no time/UUID/RNG source |
 | duplicate-looking entries | distinct native identities with equal public projection are both valid and receive distinct item IDs |
 | duplicate native identity | same native entry identity twice is SESSION_INTEGRITY_FAILURE |
@@ -441,14 +559,17 @@ the production route is not exercised.
 
 | Input/failure | Resolver absent | Resolver present |
 |---|---|---|
-| null list/entry | zero L1 requests; original native path | sanitized failure before resolver/native |
+| null list | zero L1 requests; invoke existing native orderPlaySa exactly as before | sanitized failure before resolver/native |
+| null entry or malformed snapshot identity | SESSION_INTEGRITY_FAILURE; native ordering callback zero | SESSION_INTEGRITY_FAILURE; resolver/native ordering callbacks zero |
+| n = 0 | zero ORDER requests; invoke existing native orderPlaySa exactly as today | zero ORDER requests; resolver/native callbacks zero; return empty result |
+| n = 1 | zero ORDER requests; invoke existing native orderPlaySa exactly as today and return its singleton result | zero ORDER requests; resolver/native callbacks zero; return sole entry unchanged |
 | non-wrapper/non-trigger entry | zero L1 requests; native preserved | sanitized failure; no insertion |
 | null host/source/API/trigger | zero L1 requests; native preserved | sanitized failure; no insertion |
 | hidden or face-down source | zero L1 requests; native preserved | sanitized failure; no insertion |
 | mixed effective ordering players | zero L1 requests; native preserved | sanitized failure; no insertion |
 | unsupported trigger/API shape | zero L1 requests; native preserved | sanitized failure; no insertion |
 | active continuation | zero L1 requests; existing native behavior | reject before resolver/native |
-| canonical projection omission | milestone is PARTIAL, never hidden by native fallback | milestone is PARTIAL, hard failure |
+| canonical projection omission | milestone is PARTIAL, never hidden by native fallback; unsupported path invokes existing native orderPlaySa | milestone is PARTIAL, hard failure |
 
 Admission failure is never mislabeled MAPPING_FAILED.
 
@@ -460,8 +581,8 @@ Admission failure is never mislabeled MAPPING_FAILED.
 | n=3 | resolver called twice; remaining sets are exact; native callback zero |
 | n=4 | resolver called three times; no request is created before its set exists |
 | ownership capture | mutating the controller resolver after step 0 does not change the captured resolver |
-| invalid choice | null, foreign, prior, duplicate, wrong-kind, stale, or throwing result hard-fails without fallback or insertion |
-| trace | every accepted external step is CHOSEN with false/false; no forced final result |
+| invalid choice | null, foreign, prior, duplicate, wrong-kind, stale, or throwing result terminalizes the active request as INVALID_EXTERNAL_CANDIDATE with false/false; no fallback or insertion |
+| trace | every accepted external step is CHOSEN with false/false; invalid steps are terminal INVALID_EXTERNAL_CANDIDATE; no TRACE_INCOMPLETE or forced final result |
 | completion | one complete semantic order is translated once and only then inserted |
 
 ### 9.4 Native session lifecycle
@@ -473,7 +594,8 @@ Admission failure is never mislabeled MAPPING_FAILED.
 | trace timing | only step 0 exists before native callback; later requests are created after full validation |
 | valid teacher | full permutation maps to RESOLVE_FIRST; each emitted step is true/true |
 | invalid duplicate | only active step 0 becomes MAPPING_FAILED true/true; no later requests or insertion |
-| invalid omission/foreign/size | same atomic failure behavior; no retry/sort/fallback |
+| invalid omission/foreign/size | same atomic MAPPING_FAILED behavior; no retry/sort/fallback |
+| callback throws | only active step 0 becomes NATIVE_CALLBACK_FAILURE false/false; no later requests, fallback, or insertion |
 | native result | returned native insertion order is exactly the original valid native order |
 
 ### 9.5 Real engine-route integration
@@ -539,9 +661,12 @@ The implementation plan should stay narrow and test-first. Expected changes are
 limited to:
 
 - typed ORDER DTOs/enums and exact DecisionRequest/LegalCandidate validation;
+- explicit null-list, n=0, n=1, and n>=2 pre-admission routing;
+- separate SESSION_INTEGRITY_FAILURE handling that never falls back to native;
 - controller-local coordinator/provider seam and resolver capture;
 - PlayerControllerAi thin routing integration;
-- trace/validator support for the typed ORDER stage;
+- trace/validator support for the typed ORDER stage and terminal
+  INVALID_EXTERNAL_CANDIDATE/NATIVE_CALLBACK_FAILURE result kinds;
 - the centralized pure LIFO translation;
 - focused unit, public-API, failure, trace, and real-engine integration tests;
 - canonical audit assertions and documentation of the 20/20 lock.
@@ -555,12 +680,13 @@ outside this map requires a new design checkpoint and explicit scope review.
 
 ~~~text
 P0: none identified
-P1: none identified
+P1: four review gaps fixed in this revision; reviewer confirmation pending
 ~~~
 
-The approved design preserves fail-closed ownership, public-contract safety,
-native one-call capture, deterministic correlation, central LIFO semantics, and
-canonical completeness.
+The revision preserves fail-closed ownership, public-contract safety, native
+one-call capture, deterministic correlation, central LIFO semantics, and
+canonical completeness while making cardinality, integrity, and terminal trace
+ownership explicit.
 
 ### Deferred P2 items
 
@@ -572,8 +698,8 @@ canonical completeness.
 ### Design verdict
 
 ~~~text
-DESIGN_APPROVED
-IMPLEMENTATION_PLAN_PENDING_WRITTEN-SPEC_REVIEW
+DESIGN_REVIEW_PENDING
+IMPLEMENTATION_PLAN_BLOCKED_UNTIL_REVIEW_CONFIRMATION
 ~~~
 
 The implementation plan is the next artifact after this written checkpoint is
