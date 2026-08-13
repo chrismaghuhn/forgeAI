@@ -1,6 +1,6 @@
 # FRL-02L1 Exact SIMULTANEOUS_TRIGGER_ORDER Design Checkpoint
 
-Status: DESIGN_REVIEW_PENDING
+Status: DESIGN_APPROVED
 
 ## Checkpoint
 
@@ -15,11 +15,11 @@ Status: DESIGN_REVIEW_PENDING
 The protected checkout remains clean and at the locked base. This design and
 the later implementation are isolated to the fresh worktree above.
 
-The current review gate is:
+The approved design gate is:
 
 ~~~text
 P0 = 0
-P1 = 0 in this revision; reviewer confirmation pending
+P1 = 0
 Approach 1 = approved
 20/20 canonical strategic sessions admitted = required
 ~~~
@@ -707,7 +707,7 @@ outside this map requires a new design checkpoint and explicit scope review.
 
 ~~~text
 P0: none identified
-P1: five review gaps fixed in this revision; reviewer confirmation pending
+P1: none; review gate closed
 ~~~
 
 The revision preserves fail-closed ownership, public-contract safety, native
@@ -725,10 +725,9 @@ ownership explicit.
 ### Design verdict
 
 ~~~text
-DESIGN_REVIEW_PENDING
-IMPLEMENTATION_PLAN_BLOCKED_UNTIL_REVIEW_CONFIRMATION
+DESIGN_APPROVED
+IMPLEMENTATION_PLAN_IN_PROGRESS
 ~~~
 
-The implementation plan is the next artifact after this written checkpoint is
-reviewed. It must preserve the exact acceptance locks above and implement with
-tests first.
+The implementation plan follows this approved checkpoint and must preserve the
+exact acceptance locks above while implementing with tests first.
