@@ -552,3 +552,37 @@ The Spec is DESIGN_APPROVED; the plan is committed at the requested path; the
 implementation is test-first and limited to the exact profile; focused and full
 tests report their actual results; the canonical audit is 20/20 with 27
 requests; and PR #22 remains Draft.
+
+## Implementation checkpoint — 2026-08-13
+
+The test-first implementation is present, but the canonical gate is intentionally
+not marked complete. The fresh-JVM workload confirms the raw distribution exactly:
+
+~~~text
+orderSimultaneousSa total = 116
+n=1 = 96
+n=2 = 14
+n=3 = 5
+n=4 = 1
+~~~
+
+The approved exact admission currently produces:
+
+~~~text
+strategic sessions = 20
+admitted sessions = 19
+ORDER requests = 26
+candidate size 2 = 19
+candidate size 3 = 6
+candidate size 4 = 1
+unsupported native fallbacks = 1
+~~~
+
+The one rejected strategic-sized call contains a `SpellApiBased` non-trigger
+from the separate copy-spell ordering path. It cannot satisfy the approved
+`WrappedAbility` plus `TriggerType` projection without widening the public
+contract or creating a second profile. The implementation therefore keeps the
+call on the specified resolver-null native fallback and leaves the hard
+20/20/27 acceptance assertion red as `FRL_02L1_PARTIAL`; it does not silently
+count native fallback as L1 admission. A design decision is required before
+the canonical gate can be marked complete.
