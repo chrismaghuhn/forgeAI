@@ -149,7 +149,7 @@ public final class SimultaneousTriggerOrderDecisionCoordinator {
         return new Snapshot(entries, byIdentity, chooser, orderSessionId);
     }
 
-    private static boolean isSimultaneousTriggerProfileCandidate(final List<SpellAbility> active) {
+    static boolean isSimultaneousTriggerProfileCandidate(final List<SpellAbility> active) {
         try {
             Player effectiveOrderingPlayer = null;
             for (final SpellAbility entry : active) {

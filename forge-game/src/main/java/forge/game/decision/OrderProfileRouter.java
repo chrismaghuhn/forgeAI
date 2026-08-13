@@ -3,8 +3,6 @@ package forge.game.decision;
 import forge.game.card.Card;
 import forge.game.player.Player;
 import forge.game.spellability.SpellAbility;
-import forge.game.trigger.Trigger;
-import forge.game.trigger.WrappedAbility;
 
 import java.util.List;
 
@@ -54,7 +52,7 @@ public final class OrderProfileRouter {
         if (active == null || active.size() < 2) {
             return PreClassification.UNOWNED_OTHER;
         }
-        if (isExactL1(active)) {
+        if (SimultaneousTriggerOrderDecisionCoordinator.isSimultaneousTriggerProfileCandidate(active)) {
             return PreClassification.L1_EXACT;
         }
         if (isCopySpellFamilyIntent(active)) {
@@ -97,37 +95,4 @@ public final class OrderProfileRouter {
         }
     }
 
-    private static boolean isExactL1(final List<SpellAbility> active) {
-        try {
-            Player effectiveOrderingPlayer = null;
-            for (final SpellAbility entry : active) {
-                if (!(entry instanceof WrappedAbility) || !entry.isTrigger()) {
-                    return false;
-                }
-                final Trigger trigger = ((WrappedAbility) entry).getTrigger();
-                if (trigger == null || trigger.isStatic()) {
-                    return false;
-                }
-                final Player effective = effectiveOrderingPlayer(entry);
-                if (effective == null || effectiveOrderingPlayer != null
-                        && !effectiveOrderingPlayer.equals(effective)) {
-                    return false;
-                }
-                if (effectiveOrderingPlayer == null) {
-                    effectiveOrderingPlayer = effective;
-                }
-            }
-            return true;
-        } catch (final RuntimeException ex) {
-            return false;
-        }
-    }
-
-    private static Player effectiveOrderingPlayer(final SpellAbility entry) {
-        Player player = entry.getActivatingPlayer();
-        if (player == null && entry.getHostCard() != null) {
-            player = entry.getHostCard().getController();
-        }
-        return player;
-    }
 }

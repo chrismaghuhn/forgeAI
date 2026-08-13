@@ -35,6 +35,18 @@ public class DecisionTraceV3Test extends AITest {
     }
 
     @Test
+    public void legacyV2CopySpellStageCanNeverBecomeBcEligible() {
+        final DecisionTraceRequestRecord request = DecisionTraceRequestRecord.fromSerializedRequest(
+                "DECISION_TRACE_V2|REQUEST|0|1|MAIN|0|ORDER|COPY_SPELL_RESOLVE_FIRST_ORDER|0|false|"
+                        + "[RESOLVE_FIRST%7C1,RESOLVE_FIRST%7C2]|hash");
+
+        assertEquals(request.getProfile(), DecisionTraceRequestRecord.Profile.OTHER);
+        assertEquals(request.getTeacherLabelEligibility(),
+                DecisionTraceTeacherLabelEligibility.NOT_APPLICABLE);
+        assertFalse(DecisionTraceTrainingValidator.isBCPolicySample(request, chosen(request)));
+    }
+
+    @Test
     public void nonSymmetricL1CNativeRequestPersistsEligibilityAndRemainsBcEligible() throws Exception {
         final Fixture fixture = fixture();
         final DeterminismTrace trace = DeterminismTrace.attach(fixture.game, 0,
@@ -97,12 +109,11 @@ public class DecisionTraceV3Test extends AITest {
         final DeterminismTrace trace = DeterminismTrace.attach(fixture.game, 0,
                 new DeterminismAuditRandom(20260810L), fixture.directory);
         try {
-            final DecisionRequest l1Request = new DecisionRequest(1L, DecisionType.MULLIGAN,
-                    List.of(LegalCandidate.mulligan(0, MulliganCandidateKind.KEEP),
-                            LegalCandidate.mulligan(1, MulliganCandidateKind.REDRAW)),
-                    new MulliganContext(1, 1L, 0, 0, 0, 1, 0, 7, MulliganStage.KEEP_OR_REDRAW, List.of()));
+            final DecisionRequest l1Request = simultaneousTriggerOrderRequest(fixture.player, 1L);
             final DeterminismTrace.RequestHandle l1 = DeterminismTrace.recordRequest(fixture.game,
-                    fixture.player.getId(), l1Request, "KEEP_OR_REDRAW", 0);
+                    fixture.player.getId(), l1Request, "SIMULTANEOUS_TRIGGER_ORDER", 0,
+                    DecisionTraceRequestRecord.Profile.SIMULTANEOUS_TRIGGER_ORDER,
+                    DecisionTraceTeacherLabelEligibility.BC_ELIGIBLE);
             l1.recordMappedResult(l1Request.getCandidates().get(0));
 
             final DecisionRequest l1cRequest = request(fixture.player, 2L,
@@ -125,6 +136,12 @@ public class DecisionTraceV3Test extends AITest {
             assertTrue(records.stream().allMatch(record -> record.startsWith("DECISION_TRACE_V3|")));
             assertFalse(records.stream().anyMatch(record -> record.startsWith("DECISION_TRACE_V2|")));
             assertEquals(records.get(0).split("\\|", -1).length, 14);
+            final DecisionTraceRequestRecord parsedL1 =
+                    DecisionTraceRequestRecord.fromSerializedRequest(records.get(0));
+            assertEquals(parsedL1.getDecisionType(), DecisionType.ORDER);
+            assertEquals(parsedL1.getProfile(), DecisionTraceRequestRecord.Profile.SIMULTANEOUS_TRIGGER_ORDER);
+            assertEquals(parsedL1.getTeacherLabelEligibility(),
+                    DecisionTraceTeacherLabelEligibility.BC_ELIGIBLE);
             assertTrue(Files.readAllLines(fixture.directory.resolve("game-001.summary.properties"),
                     StandardCharsets.UTF_8).contains("decisionTraceVersion=DECISION_TRACE_V3"));
         } finally {
@@ -143,6 +160,22 @@ public class DecisionTraceV3Test extends AITest {
                                 CopySpellResolveFirstOrderItemKind.COPIED_SPELL, first),
                         LegalCandidate.copySpellResolveFirstOrder(1,
                                 CopySpellResolveFirstOrderItemKind.COPIED_SPELL, second)), context);
+    }
+
+    private DecisionRequest simultaneousTriggerOrderRequest(final Player player, final long sessionId) {
+        final SimultaneousTriggerOrderContext context = new SimultaneousTriggerOrderContext(
+                SimultaneousTriggerOrderProfile.SIMULTANEOUS_TRIGGER_ORDER,
+                OrderDirection.RESOLVE_FIRST, sessionId, 0, 2, player.getId());
+        return new DecisionRequest(sessionId, DecisionType.ORDER,
+                List.of(LegalCandidate.order(0, OrderCandidateKind.SELECT_RESOLVE_FIRST,
+                                new SimultaneousTriggerOrderItem(1L,
+                                        new CardSelectionCard(addCard("Island", player)),
+                                        forge.game.trigger.TriggerType.AbilityCast, ApiType.Effect)),
+                        LegalCandidate.order(1, OrderCandidateKind.SELECT_RESOLVE_FIRST,
+                                new SimultaneousTriggerOrderItem(2L,
+                                        new CardSelectionCard(addCard("Mountain", player)),
+                                        forge.game.trigger.TriggerType.AbilityCast, ApiType.Effect))),
+                context);
     }
 
     private static DecisionTraceResultRecord chosen(final DecisionTraceRequestRecord request) {

@@ -158,17 +158,13 @@ public final class DecisionTraceRequestRecord {
     private static Profile inferProfile(final DecisionType decisionType, final String adapterOrStage) {
         return decisionType == DecisionType.ORDER
                 && "SIMULTANEOUS_TRIGGER_ORDER".equals(adapterOrStage)
-                ? Profile.SIMULTANEOUS_TRIGGER_ORDER
-                : decisionType == DecisionType.ORDER
-                        && "COPY_SPELL_RESOLVE_FIRST_ORDER".equals(adapterOrStage)
-                        ? Profile.COPY_SPELL_RESOLVE_FIRST_ORDER : Profile.OTHER;
+                ? Profile.SIMULTANEOUS_TRIGGER_ORDER : Profile.OTHER;
     }
 
     private static DecisionTraceTeacherLabelEligibility inferEligibility(final DecisionType decisionType,
             final String adapterOrStage) {
         return decisionType == DecisionType.ORDER
-                && ("SIMULTANEOUS_TRIGGER_ORDER".equals(adapterOrStage)
-                        || "COPY_SPELL_RESOLVE_FIRST_ORDER".equals(adapterOrStage))
+                && "SIMULTANEOUS_TRIGGER_ORDER".equals(adapterOrStage)
                 ? DecisionTraceTeacherLabelEligibility.BC_ELIGIBLE
                 : DecisionTraceTeacherLabelEligibility.NOT_APPLICABLE;
     }

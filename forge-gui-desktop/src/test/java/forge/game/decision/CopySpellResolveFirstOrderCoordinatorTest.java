@@ -259,23 +259,26 @@ public class CopySpellResolveFirstOrderCoordinatorTest extends AITest {
     public void nativeInvalidPermutationsAndCallbackThrowAreHardFailures() {
         final CopySpellResolveFirstOrderDecisionCoordinator coordinator =
                 new CopySpellResolveFirstOrderDecisionCoordinator();
-        for (final int mode : List.of(0, 1, 2)) {
-            final Fixture fixture = fixture(2);
-            final CopySpellResolveFirstOrderDecisionProvider provider =
-                    new CopySpellResolveFirstOrderDecisionProvider();
-            final SimultaneousTriggerOrderIntegrityException exception = expectThrows(
-                    SimultaneousTriggerOrderIntegrityException.class,
-                    () -> coordinator.order(fixture.copies, fixture.player, provider, ignored -> {
-                        if (mode == 0) {
-                            return null;
-                        }
-                        if (mode == 1) {
-                            return List.of(fixture.copies.get(0), fixture.copies.get(0));
-                        }
-                        return List.of(fixture.copies.get(0), fixture.copies.get(0));
-                    }));
-            assertEquals(exception.getReason(), mode == 2 ? "MAPPING_FAILED" : "MAPPING_FAILED");
-        }
+        final Fixture wrongSize = fixture(2);
+        assertNativeMappingFailed(coordinator, wrongSize, List.of(wrongSize.copies.get(0)));
+
+        final Fixture nullEntry = fixture(2);
+        final List<SpellAbility> nullResult = new ArrayList<>(List.of(nullEntry.copies.get(0)));
+        nullResult.add(null);
+        assertNativeMappingFailed(coordinator, nullEntry, nullResult);
+
+        final Fixture foreign = fixture(2);
+        final Card foreignSource = addCardToZone("Pyromatics", foreign.player, ZoneType.Battlefield);
+        final SpellAbility foreignOriginal = foreignSource.getFirstSpellAbility();
+        foreignOriginal.setActivatingPlayer(foreign.player);
+        final SpellAbility foreignCopy = CardFactory.copySpellAbilityAndPossiblyHost(
+                foreignOriginal, foreignOriginal, foreign.player);
+        assertNativeMappingFailed(coordinator, foreign,
+                List.of(foreign.copies.get(0), foreignCopy));
+
+        final Fixture omission = fixture(3);
+        assertNativeMappingFailed(coordinator, omission,
+                List.of(omission.copies.get(0), omission.copies.get(1), omission.copies.get(1)));
 
         final Fixture fixture = fixture(2);
         final SimultaneousTriggerOrderIntegrityException callbackFailure = expectThrows(
@@ -286,6 +289,15 @@ public class CopySpellResolveFirstOrderCoordinatorTest extends AITest {
                         }));
         assertEquals(callbackFailure.getReason(), "NATIVE_CALLBACK_FAILURE");
         assertTrue(!callbackFailure.getMessage().contains("native detail"));
+    }
+
+    private void assertNativeMappingFailed(final CopySpellResolveFirstOrderDecisionCoordinator coordinator,
+            final Fixture fixture, final List<SpellAbility> nativeResult) {
+        final SimultaneousTriggerOrderIntegrityException exception = expectThrows(
+                SimultaneousTriggerOrderIntegrityException.class,
+                () -> coordinator.order(fixture.copies, fixture.player,
+                        new CopySpellResolveFirstOrderDecisionProvider(), ignored -> nativeResult));
+        assertEquals(exception.getReason(), "MAPPING_FAILED");
     }
 
     @Test
