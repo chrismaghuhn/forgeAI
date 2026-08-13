@@ -252,14 +252,18 @@ public class BloodConfirmationOwnershipMatrixTest extends AITest {
 
             traceDirectory = Files.createTempDirectory("frl02k-d1-blood-fizzle-");
             trace = DeterminismTrace.attach(fixture.game(), 0, auditRandom, traceDirectory);
+            final int stackBefore = fixture.game().getStack().size();
             controller.orderAndPlaySimultaneousSa(List.of(fixture.wrapper()));
+            assertEquals(fixture.game().getStack().size(), stackBefore + 1,
+                    "the production order route must insert the wrapper exactly once");
             assertEquals(fixture.ability().getTargets().size(), 1,
                     "Target A must be selected before stack insertion");
             assertTrue(fixture.ability().getTargets().contains(fixture.targetA()));
-            fixture.game().getStack().add(fixture.wrapper());
             fixture.game().getAction().moveTo(ZoneType.Exile, fixture.targetA(), null, null);
 
             fixture.game().getStack().resolveStack();
+            assertEquals(fixture.game().getStack().size(), stackBefore,
+                    "the fizzling wrapper must leave the stack at its baseline size");
             final Exception traceFinishFailure = finishTrace(trace);
             final List<String> records = readTraceRecords(traceDirectory, new SoftAssert());
             final List<String> requestRecords = records.stream()
