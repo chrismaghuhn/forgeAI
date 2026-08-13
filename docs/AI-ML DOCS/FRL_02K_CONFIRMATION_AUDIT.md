@@ -24,7 +24,7 @@ The following is the current C2A authority. Sections 29.19 and 29.20 retain the 
 | `global triggered TARGET` | `OPEN` |
 | `Blood CONFIRMATION` | `SUPPORTED / PASS` for the exact Blood Operative ETB confirmation profile; all other Blood confirmation shapes remain open. |
 | `global CONFIRMATION` | `OPEN` |
-| Agent completeness | Blood is not agent-complete; only the exact ETB `TARGET` profile is supported, and the later Blood confirmation remains open. |
+| Agent completeness | Blood is not agent-complete; the exact ETB `TARGET` and ETB `CONFIRMATION` profiles are supported, while Blood Surveil `PayLife<3>` remains `PAYMENT`-owned/open. |
 
 Reference set: [C2A design/spec](../superpowers/specs/2026-08-11-frl-02k-c2a-triggered-target-provider-seam-design.md), [C2A implementation plan](../superpowers/plans/2026-08-11-frl-02k-c2a-triggered-target-provider-seam.md), [C2A audit](FRL_02K_C2A_TRIGGERED_TARGET_AUDIT.md), and [D1 audit](FRL_02K_D1_BLOOD_CONFIRMATION_AUDIT.md).
 

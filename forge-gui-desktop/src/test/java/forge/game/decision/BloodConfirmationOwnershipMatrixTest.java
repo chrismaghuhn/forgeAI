@@ -221,6 +221,89 @@ public class BloodConfirmationOwnershipMatrixTest extends AITest {
     }
 
     @Test
+    public void externalBloodFizzleBeforeConfirmationSkipsConfirmationAndRetargeting() throws Exception {
+        final Random previousRandom = MyRandom.getRandom();
+        final DeterminismAuditRandom auditRandom = new DeterminismAuditRandom(DETERMINISTIC_SEED);
+        Path traceDirectory = null;
+        DeterminismTrace trace = null;
+        MyRandom.setRandom(auditRandom);
+
+        try {
+            final BloodFixture fixture = bloodFixture();
+            assertBloodFixture(fixture);
+            final CountingController controller = installController(fixture);
+            final AtomicInteger targetResolverCalls = new AtomicInteger();
+            controller.setTargetDecisionResolver(request -> {
+                targetResolverCalls.incrementAndGet();
+                return request.getCandidates().stream()
+                        .filter(candidate -> candidate.getTargetKind() == TargetCandidateKind.TARGET_CARD)
+                        .filter(candidate -> candidate.getTarget() == fixture.targetA())
+                        .findFirst()
+                        .orElseThrow(() -> new AssertionError("Blood target A is not in the legal request"));
+            });
+            final AtomicInteger confirmationResolverCalls = new AtomicInteger();
+            controller.getConfirmationDecisionProvider().setResolver(request -> {
+                confirmationResolverCalls.incrementAndGet();
+                return request.getCandidates().stream()
+                        .filter(candidate -> candidate.getConfirmationKind() == ConfirmationCandidateKind.ACCEPT)
+                        .findFirst()
+                        .orElseThrow(() -> new AssertionError("ACCEPT is not in the confirmation request"));
+            });
+
+            traceDirectory = Files.createTempDirectory("frl02k-d1-blood-fizzle-");
+            trace = DeterminismTrace.attach(fixture.game(), 0, auditRandom, traceDirectory);
+            controller.orderAndPlaySimultaneousSa(List.of(fixture.wrapper()));
+            assertEquals(fixture.ability().getTargets().size(), 1,
+                    "Target A must be selected before stack insertion");
+            assertTrue(fixture.ability().getTargets().contains(fixture.targetA()));
+            fixture.game().getStack().add(fixture.wrapper());
+            fixture.game().getAction().moveTo(ZoneType.Exile, fixture.targetA(), null, null);
+
+            fixture.game().getStack().resolveStack();
+            final Exception traceFinishFailure = finishTrace(trace);
+            final List<String> records = readTraceRecords(traceDirectory, new SoftAssert());
+            final List<String> requestRecords = records.stream()
+                    .filter(record -> record.startsWith("DECISION_TRACE_V2|REQUEST|"))
+                    .toList();
+            final List<String> confirmationRequestRecords = requestRecords.stream()
+                    .filter(record -> "CONFIRMATION".equals(traceField(record, 6)))
+                    .toList();
+
+            assertNull(traceFinishFailure, "the attached decision trace must finish cleanly");
+            assertEquals(controller.orderSimultaneousSaCalls(), 1);
+            assertEquals(targetResolverCalls.get(), 1,
+                    "external TARGET ownership must select A exactly once");
+            assertEquals(confirmationResolverCalls.get(), 0,
+                    "a post-stack fizzle must stop before the external confirmation resolver");
+            assertEquals(controller.nativeTargetCallbackCalls(), 0,
+                    "external TARGET ownership must not invoke native target selection");
+            assertEquals(controller.nativeConfirmationCallbackCalls(), 0,
+                    "a post-stack fizzle must stop before native confirmation");
+            assertEquals(confirmationRequestRecords.size(), 0,
+                    "a post-stack fizzle must not trace a CONFIRMATION request");
+            assertTrue(fixture.ability().getTargets().isEmpty(),
+                    "Forge fizzle may clear stale A but must not retarget the ability");
+            final Card currentTargetA = fixture.game().getCardState(fixture.targetA(), null);
+            final Card currentTargetB = fixture.game().getCardState(fixture.targetB(), null);
+            assertEquals(fixture.game().getCardsIn(ZoneType.Exile).stream()
+                    .filter(card -> samePublicCardIdentity(card, currentTargetA)).count(), 1L,
+                    "A must be the only Blood card moved to exile");
+            assertEquals(fixture.game().getCardsIn(ZoneType.Exile).stream()
+                    .filter(card -> samePublicCardIdentity(card, currentTargetB)).count(), 0L,
+                    "fizzle must not apply Blood to target B");
+            assertEquals(fixture.game().getCardsIn(ZoneType.Graveyard).stream()
+                    .filter(card -> samePublicCardIdentity(card, currentTargetB)).count(), 1L,
+                    "target B must remain untouched in the graveyard");
+        } finally {
+            finishTrace(trace);
+            if (traceDirectory != null) {
+                deleteTree(traceDirectory);
+            }
+            MyRandom.setRandom(previousRandom);
+        }
+    }
+
+    @Test
     public void targetAndConfirmationResolversRemainIndependentAcrossAllFourCells() throws Exception {
         runOwnershipCell(false, false);
         runOwnershipCell(true, false);

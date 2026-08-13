@@ -97,14 +97,14 @@ All commands below were run from `C:\forgeAI-blood-confirmation-d1` with Maven's
 | Evidence | Result |
 |---|---|
 | `BloodOperativeConfirmationDecisionProviderTest` | 10 tests, 0 failures, 0 errors; exact profile, native/external ownership, captured-result guard, typed unsupported profile, sanitized null/throwing/foreign resolver failures, and live-integrity invalidation. |
-| `BloodConfirmationOwnershipMatrixTest` plus C2A ownership selectors | 24 tests, 0 failures, 0 errors; all four target/confirmation ownership cells, A restoration, B absence under external confirmation, and trace flags. |
-| Combined D1/B1/C2A/trace/diagnostics selector | 80 tests, 0 failures, 0 errors. |
+| `BloodConfirmationOwnershipMatrixTest` plus C2A ownership selectors | 25 tests, 0 failures, 0 errors; all four target/confirmation ownership cells, A restoration, B absence under external confirmation, trace flags, and the post-stack illegal-A fizzle before confirmation. |
+| Combined D1/B1/C2A/trace/diagnostics selector | 81 tests, 0 failures, 0 errors. |
 | `FRL02KConfirmationAuditTest` | 4 tests, 0 failures, 0 errors. |
 | `FRL02KChangesZoneProjectionAuditTest` | 1 test, 0 failures, 0 errors; isolated canonical ChangesZone workload. |
 | `FRL02KRemainingConfirmationAuditTest` | 1 test, 0 failures, 0 errors; isolated canonical reactive/proactive workloads. |
 | `PriorityActionDiagnosticsTest` and retained C2A diagnostics selectors | Green in the focused verification set; no diagnostics schema regression observed. |
 
-The combined selector initially exposed a real B1 regression when the new D1 `apply-after-choose` guard was applied unconditionally. The correction was narrowed to the Blood ETB profile, after which the focused B1+D1 selector was green with 28 tests and the full combined selector was green with 79 tests. This is recorded as resolved evidence, not suppressed.
+The combined selector initially exposed a real B1 regression when the new D1 `apply-after-choose` guard was applied unconditionally. The correction was narrowed to the Blood ETB profile, after which the focused B1+D1 selector was green with 28 tests and the full combined selector was green with 79 tests. The later profile-aware correction produced 80 tests; the explicit post-stack fizzle regression brings the current selector to 81. This is recorded as resolved evidence, not suppressed.
 
 ## 7. Canonical workload invariants
 
