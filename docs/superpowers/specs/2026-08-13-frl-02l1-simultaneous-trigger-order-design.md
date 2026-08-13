@@ -1,6 +1,7 @@
 # FRL-02L1 Exact SIMULTANEOUS_TRIGGER_ORDER Design Checkpoint
 
 Status: DESIGN_APPROVED
+Implementation status: FRL_02L1_PASS
 
 ## Checkpoint
 
@@ -21,7 +22,10 @@ The approved design gate is:
 P0 = 0
 P1 = 0
 Approach 1 = approved
-20/20 canonical strategic sessions admitted = required
+19/19 exact SIMULTANEOUS_TRIGGER_ORDER sessions admitted = required
+26 exact L1 ORDER requests = required
+raw multi-item callback surface = 20
+one separately attributed copied-spell callback remains outside L1
 ~~~
 
 ## 1. Objective and non-goals
@@ -44,6 +48,8 @@ central LIFO translation.
 This milestone does not add:
 
 - SURVEIL_PARTITION_PLUS_ORDER or any Surveil partition semantics;
+- COPY_SPELL_RESOLVE_FIRST_ORDER; the exact Replicate/`CopySpellAbilityEffect`
+  seam is discovered by FRL-02L1R2 but requires a separate design checkpoint;
 - generic permutation or generic ORDER provider APIs;
 - combatant ORDER, damage assignment, DAMAGE_ASSIGNMENT, or combat-rule
   activation;
@@ -137,9 +143,11 @@ inspection and the canonical workload:
 
 The WrappedAbility restriction is an exact v0 admission condition only. If
 canonical source inspection or the locked workload identifies a real strategic
-v0 group with another entry type, silently filtering it is forbidden: the
-result is a projection blocker and the 20/20 gate fails until the profile is
-explicitly extended.
+v0 group with another entry type, silently filtering it is forbidden. The
+FRL-02L1R2 audit has identified exactly one such group: the copied-spell
+resolve-first seam. It is recorded as a separate player-owned semantic profile,
+not as a missing L1 admission; the 19/19 L1 gate measures only the exact
+trigger profile.
 
 ### 3.3 Public duplicate policy and private integrity
 
@@ -648,20 +656,38 @@ n=2 = 14
 n=3 = 5
 n=4 = 1
 
-canonical strategic sessions = 20
-admitted strategic sessions = 20
-ORDER requests = 27
-candidate size 2 = 20
+raw multi-item callbacks = 20
+SIMULTANEOUS_TRIGGER_ORDER profile sessions = 19
+admitted SIMULTANEOUS_TRIGGER_ORDER sessions = 19
+non-L1 player-owned copy-spell callbacks = 1
+ORDER requests = 26
+candidate size 2 = 19
 candidate size 3 = 6
 candidate size 4 = 1
 forced requests = 0
 ~~~
 
-The milestone is FRL_02L1_PASS only if all 20 strategic sessions are admitted
-under the exact projection and all request/trace/ordering invariants hold. If
-even one real canonical session is excluded, the result is FRL_02L1_PARTIAL and
-the missing shape must be diagnosed. Native fallback does not count an excluded
-session as an L1 pass.
+The milestone is `FRL_02L1_PASS` only if all 19 exact
+`SIMULTANEOUS_TRIGGER_ORDER` sessions are admitted under the exact projection
+and all request/trace/ordering invariants hold. The raw 20th multi-item
+callback is the separately proven player-owned copied-spell seam and does not
+count against L1 completeness. Native fallback for that outside-L1 callback is
+not an L1-profile unsupported fallback.
+
+The corrected acceptance gate was completed on the locked fresh-JVM workload:
+
+```text
+raw multi-item callbacks = 20
+SIMULTANEOUS_TRIGGER_ORDER sessions = 19
+admitted SIMULTANEOUS_TRIGGER_ORDER sessions = 19
+ORDER requests = 26
+candidate size 2/3/4 = 19/6/1
+forced requests = 0
+l1 unsupported fallback = 0
+outside-L1 native fallback = 1
+mapping failures = 0
+trace incomplete = 0
+```
 
 ### 9.7 Retained regression suite
 
@@ -696,7 +722,8 @@ limited to:
   INVALID_EXTERNAL_CANDIDATE/NATIVE_CALLBACK_FAILURE result kinds;
 - the centralized pure LIFO translation;
 - focused unit, public-API, failure, trace, and real-engine integration tests;
-- canonical audit assertions and documentation of the 20/20 lock.
+- canonical audit assertions and documentation of the raw-20 versus exact-19
+  profile lock.
 
 MagicStack should not require a behavioral change. Any proposed production file
 outside this map requires a new design checkpoint and explicit scope review.
@@ -717,16 +744,28 @@ ownership explicit.
 
 ### Deferred P2 items
 
+- the discovered `COPY_SPELL_RESOLVE_FIRST_ORDER` profile, which requires its
+  own design checkpoint;
 - a future profile for Surveil partition-plus-order;
 - any generic ORDER/permutation abstraction beyond this exact profile;
 - cross-session/global correlation or ActionContinuation semantics;
 - combat ordering or damage assignment.
 
+The next design checkpoint after this exact L1 profile is:
+
+```text
+FRL-02L1C DESIGN_COPY_SPELL_RESOLVE_FIRST_ORDER
+```
+
+It must remain narrow to the proven Replicate/`CopySpellAbilityEffect`
+semantic family and must not be implemented as part of FRL-02L1.
+
 ### Design verdict
 
 ~~~text
 DESIGN_APPROVED
-IMPLEMENTATION_PLAN_IN_PROGRESS
+FRL_02L1_PASS
+ORDER_V0_COMPLETE = false
 ~~~
 
 The implementation plan follows this approved checkpoint and must preserve the

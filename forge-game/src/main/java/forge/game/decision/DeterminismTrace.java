@@ -347,6 +347,9 @@ public final class DeterminismTrace {
         }
 
         private void recordTraceIncomplete() {
+            if ("SIMULTANEOUS_TRIGGER_ORDER".equals(requestRecord.getAdapterOrStage())) {
+                SimultaneousTriggerOrderAuditDiagnostics.recordTraceIncomplete();
+            }
             trace.complete(this, DecisionTraceResultKind.TRACE_INCOMPLETE, "", false, false,
                     false, false, true);
         }

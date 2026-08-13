@@ -23,19 +23,23 @@ public final class SimultaneousTriggerOrderAuditDiagnostics {
     private static long n3;
     private static long n4;
     private static long nOther;
-    private static long strategicSessions;
-    private static long admittedSessions;
+    private static long rawMultiItemCallbacks;
+    private static long simultaneousTriggerProfileSessions;
+    private static long admittedSimultaneousTriggerSessions;
+    private static long nonL1MultiItemCallbacks;
     private static long orderRequests;
     private static long candidateSize2;
     private static long candidateSize3;
     private static long candidateSize4;
     private static long forcedRequests;
-    private static long unsupportedFallbacks;
+    private static long l1UnsupportedFallbacks;
+    private static long outsideL1NativeFallbacks;
     private static long integrityFailures;
-    private static long unsupportedFailures;
+    private static long l1UnsupportedFailures;
     private static long invalidExternalCandidates;
     private static long nativeCallbackFailures;
     private static long mappingFailures;
+    private static long traceIncomplete;
     private static final Map<String, Long> admissionRejections = new TreeMap<>();
 
     static {
@@ -53,6 +57,9 @@ public final class SimultaneousTriggerOrderAuditDiagnostics {
             return;
         }
         total++;
+        if (size >= 2) {
+            rawMultiItemCallbacks++;
+        }
         switch (size) {
         case 0:
             n0++;
@@ -75,18 +82,30 @@ public final class SimultaneousTriggerOrderAuditDiagnostics {
         }
     }
 
-    public static synchronized void recordStrategicAdmission(final boolean admitted) {
+    public static synchronized void recordSimultaneousTriggerProfileSession(final boolean admitted) {
         if (ENABLED) {
-            strategicSessions++;
+            simultaneousTriggerProfileSessions++;
             if (admitted) {
-                admittedSessions++;
+                admittedSimultaneousTriggerSessions++;
             }
         }
     }
 
-    public static synchronized void recordUnsupportedFallback() {
+    public static synchronized void recordNonL1MultiItemCallback() {
         if (ENABLED) {
-            unsupportedFallbacks++;
+            nonL1MultiItemCallbacks++;
+        }
+    }
+
+    public static synchronized void recordL1UnsupportedFallback() {
+        if (ENABLED) {
+            l1UnsupportedFallbacks++;
+        }
+    }
+
+    public static synchronized void recordOutsideL1NativeFallback() {
+        if (ENABLED) {
+            outsideL1NativeFallbacks++;
         }
     }
 
@@ -96,9 +115,9 @@ public final class SimultaneousTriggerOrderAuditDiagnostics {
         }
     }
 
-    public static synchronized void recordUnsupportedFailure() {
+    public static synchronized void recordL1UnsupportedFailure() {
         if (ENABLED) {
-            unsupportedFailures++;
+            l1UnsupportedFailures++;
         }
     }
 
@@ -117,6 +136,12 @@ public final class SimultaneousTriggerOrderAuditDiagnostics {
     public static synchronized void recordMappingFailure() {
         if (ENABLED) {
             mappingFailures++;
+        }
+    }
+
+    public static synchronized void recordTraceIncomplete() {
+        if (ENABLED) {
+            traceIncomplete++;
         }
     }
 
@@ -153,7 +178,7 @@ public final class SimultaneousTriggerOrderAuditDiagnostics {
             return;
         }
         final List<String> lines = new ArrayList<>();
-        lines.add("version=FRL_02L1_ORDER_AUDIT_V1");
+        lines.add("version=FRL_02L1_ORDER_AUDIT_V2");
         lines.add("orderSimultaneousSa.total=" + total);
         lines.add("orderSimultaneousSa.n0=" + n0);
         lines.add("orderSimultaneousSa.n1=" + n1);
@@ -161,19 +186,23 @@ public final class SimultaneousTriggerOrderAuditDiagnostics {
         lines.add("orderSimultaneousSa.n3=" + n3);
         lines.add("orderSimultaneousSa.n4=" + n4);
         lines.add("orderSimultaneousSa.nOther=" + nOther);
-        lines.add("strategicSessions=" + strategicSessions);
-        lines.add("admittedStrategicSessions=" + admittedSessions);
+        lines.add("rawMultiItemCallbacks=" + rawMultiItemCallbacks);
+        lines.add("simultaneousTriggerProfileSessions=" + simultaneousTriggerProfileSessions);
+        lines.add("admittedSimultaneousTriggerSessions=" + admittedSimultaneousTriggerSessions);
+        lines.add("nonL1MultiItemCallbacks=" + nonL1MultiItemCallbacks);
         lines.add("orderRequests=" + orderRequests);
         lines.add("candidateSize2=" + candidateSize2);
         lines.add("candidateSize3=" + candidateSize3);
         lines.add("candidateSize4=" + candidateSize4);
         lines.add("forcedRequests=" + forcedRequests);
-        lines.add("unsupportedFallbacks=" + unsupportedFallbacks);
+        lines.add("l1UnsupportedFallbacks=" + l1UnsupportedFallbacks);
+        lines.add("outsideL1NativeFallbacks=" + outsideL1NativeFallbacks);
         lines.add("integrityFailures=" + integrityFailures);
-        lines.add("unsupportedFailures=" + unsupportedFailures);
+        lines.add("l1UnsupportedFailures=" + l1UnsupportedFailures);
         lines.add("invalidExternalCandidates=" + invalidExternalCandidates);
         lines.add("nativeCallbackFailures=" + nativeCallbackFailures);
         lines.add("mappingFailures=" + mappingFailures);
+        lines.add("traceIncomplete=" + traceIncomplete);
         for (final Map.Entry<String, Long> entry : admissionRejections.entrySet()) {
             lines.add("admissionReject." + entry.getKey() + "=" + entry.getValue());
         }

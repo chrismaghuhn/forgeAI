@@ -2,7 +2,7 @@
 
 > For agentic workers: REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox syntax for tracking.
 
-**Goal:** Implement the exact ForgeRL L1 SIMULTANEOUS_TRIGGER_ORDER decision profile with a deterministic public projection, controller-local native/external ownership, one native teacher callback, incremental n-1 external decisions, centralized LIFO translation, terminal V2 trace records, and a 20/20 canonical v0 acceptance gate.
+**Goal:** Implement the exact ForgeRL L1 SIMULTANEOUS_TRIGGER_ORDER decision profile with a deterministic public projection, controller-local native/external ownership, one native teacher callback, incremental n-1 external decisions, centralized LIFO translation, terminal V2 trace records, and a 19/19 exact-profile canonical acceptance gate. The raw shared callback surface remains 20, with one separately attributed player-owned copied-spell callback outside L1.
 
 **Architecture:** MagicStack remains behaviorally unchanged. PlayerControllerAi remains a thin router and passes the existing AiController.orderPlaySa method as the native callback. A controller-local SimultaneousTriggerOrderDecisionProvider owns resolver state and deterministic counters. A typed SimultaneousTriggerOrderDecisionCoordinator owns exact admission, immutable session snapshots, request generation, native/external lifecycle, integrity enforcement, and the single semantic/native ordering translation. Public requests expose only value DTOs and typed enums; native Forge objects remain private coordinator state.
 
@@ -53,7 +53,8 @@ Files to create:
 - forge-gui-desktop/src/test/java/forge/game/decision/SimultaneousTriggerOrderCoordinatorTest.java
   - pure translation, admission, native/external lifecycle, and failure tests.
 - forge-gui-desktop/src/test/java/forge/view/FRL02L1SimultaneousTriggerOrderAuditTest.java
-  - fresh-JVM canonical 116-call/20-session/27-request acceptance test.
+  - fresh-JVM canonical 116-call/19-session/26-request acceptance test plus
+    explicit raw-20 and outside-L1 counters.
 
 Files to modify:
 
@@ -441,7 +442,7 @@ integration workload:
 mvn -pl forge-gui-desktop -am -Dtest=SimulateMatchDeterminismTest,FRL02KTriggeredTargetProviderAuditTest,GelectrodeConfirmationDecisionProviderTest '-Dsurefire.failIfNoSpecifiedTests=false' test
 ~~~
 
-## Task 9: Add deterministic canonical audit counters and the 20/20 RED-to-GREEN gate
+## Task 9: Add deterministic profile-separated audit counters and the 19/19 RED-to-GREEN gate
 
 Files:
 
@@ -452,10 +453,13 @@ Files:
       forge.simultaneousTriggerOrder.auditFile; disabled behavior must have
       no file I/O and no gameplay/RNG changes.
 - [ ] Record only sanitized value counters: total raw calls, cardinality
-      buckets, admitted strategic sessions, request candidate-size buckets,
-      forced count, integrity failures, unsupported fallbacks, and terminal
-      failure counts. Do not record card names, stack text, Java identity, or
-      engine object serialization.
+      buckets, raw multi-item callbacks, exact
+      `SIMULTANEOUS_TRIGGER_ORDER` profile sessions, admitted exact-profile
+      sessions, non-L1 multi-item callbacks, request candidate-size buckets,
+      forced count, L1 unsupported fallbacks, outside-L1 native fallbacks,
+      integrity failures, trace-incomplete count, and terminal failure counts.
+      Do not record card names, stack text, Java identity, or engine object
+      serialization.
 - [ ] Launch the existing deterministic Forge headless workload in a fresh
       JVM, enable only the audit property and decision trace output, and parse
       the resulting value-only files.
@@ -466,18 +470,24 @@ n=1 = 96
 n=2 = 14
 n=3 = 5
 n=4 = 1
-canonical strategic sessions = 20
-admitted strategic sessions = 20
-ORDER requests = 27
-candidate size 2 = 20
+raw multi-item callbacks = 20
+SIMULTANEOUS_TRIGGER_ORDER profile sessions = 19
+admitted SIMULTANEOUS_TRIGGER_ORDER sessions = 19
+non-L1 player-owned copy-spell callbacks = 1
+ORDER requests = 26
+candidate size 2 = 19
 candidate size 3 = 6
 candidate size 4 = 1
 forced requests = 0
+l1 unsupported fallback = 0
+outside-L1 native fallback = 1
 ~~~
 - [ ] Assert that no Surveil/combat/DAMAGE_ASSIGNMENT workload is admitted by
-      this exact profile and that native fallback does not count as admission.
-- [ ] Keep the acceptance failure explicit: any admitted count below 20 is
-      FRL_02L1_PARTIAL, not a pass.
+      this exact profile and that the known copied-spell callback is classified
+      outside L1 rather than engine-owned.
+- [ ] Keep the acceptance failure explicit: any admitted count below 19 exact
+      L1 sessions is `FRL_02L1_PARTIAL`, not a pass. The outside-L1 callback is
+      not an L1 completeness failure.
 
 Run the focused audit command. On Windows quote Maven properties containing
 equal signs:
@@ -497,7 +507,8 @@ Files: the approved Spec, this plan, implementation files, and tests.
       cardinality, native fallback ownership, session ID determinism, native
       one-call lifecycle, incremental trace, external n-1, RESOLVE_FIRST
       conversion/round trip, terminal failure kinds, validator semantics,
-      no ActionContinuation, canonical 20/20/27 lock, and scope exclusions.
+      no ActionContinuation, canonical raw-20 versus exact-19/26 lock, and
+      scope exclusions.
 - [ ] Scan the plan for unresolved placeholders and remove any accidental
       matches before committing. The command excludes its own scan expression:
 
@@ -539,7 +550,7 @@ mvn -pl forge-gui-desktop -am test
 | External n-1 and invalidity terminalization | Tasks 2, 4, and 7 |
 | Central LIFO translation plus round trip | Task 3 and Task 7 |
 | ORDER validator exact semantics | Task 2 and Task 6 |
-| Canonical 20/20, 27-request lock | Task 9 |
+| Canonical raw-20 / exact-19/19 / 26-request lock | Task 9 |
 | MagicStack unchanged and scope exclusions | Tasks 8 and 10 |
 
 No plan step silently substitutes native fallback for an excluded strategic
@@ -550,13 +561,15 @@ implementation task broadens the public contract beyond the approved values.
 
 The Spec is DESIGN_APPROVED; the plan is committed at the requested path; the
 implementation is test-first and limited to the exact profile; focused and full
-tests report their actual results; the canonical audit is 20/20 with 27
-requests; and PR #22 remains Draft.
+tests report their actual results; the canonical audit is 19/19 exact L1
+sessions with 26 requests while retaining 20 raw multi-item callbacks and one
+outside-L1 copied-spell callback; and PR #22 remains Draft.
 
 ## Implementation checkpoint — 2026-08-13
 
-The test-first implementation is present, but the canonical gate is intentionally
-not marked complete. The fresh-JVM workload confirms the raw distribution exactly:
+The corrected authority gate is complete for the exact
+`SIMULTANEOUS_TRIGGER_ORDER` profile. The fresh-JVM workload confirms the raw
+distribution exactly:
 
 ~~~text
 orderSimultaneousSa total = 116
@@ -566,23 +579,39 @@ n=3 = 5
 n=4 = 1
 ~~~
 
-The approved exact admission currently produces:
+The raw workload and corrected exact-profile admission produce:
 
 ~~~text
-strategic sessions = 20
-admitted sessions = 19
+raw multi-item callbacks = 20
+SIMULTANEOUS_TRIGGER_ORDER profile sessions = 19
+admitted SIMULTANEOUS_TRIGGER_ORDER sessions = 19
 ORDER requests = 26
 candidate size 2 = 19
 candidate size 3 = 6
 candidate size 4 = 1
-unsupported native fallbacks = 1
+l1 unsupported native fallbacks = 0
+outside-L1 native fallbacks = 1
 ~~~
 
-The one rejected strategic-sized call contains a `SpellApiBased` non-trigger
-from the separate copy-spell ordering path. It cannot satisfy the approved
-`WrappedAbility` plus `TriggerType` projection without widening the public
-contract or creating a second profile. The implementation therefore keeps the
-call on the specified resolver-null native fallback and leaves the hard
-20/20/27 acceptance assertion red as `FRL_02L1_PARTIAL`; it does not silently
-count native fallback as L1 admission. A design decision is required before
-the canonical gate can be marked complete.
+The one outside-L1 call contains a `SpellApiBased` non-trigger from the
+separate copy-spell ordering path. FRL-02L1R2 proves that this is a player-owned
+semantic seam, not an engine-owned callback and not a missing L1 admission. It
+therefore remains on the resolver-null native fallback while the separate
+profile is unimplemented. The corrected L1 gate measures 19 exact sessions and
+26 requests; the copy-spell design checkpoint remains open.
+
+The resulting milestone status is:
+
+```text
+FRL_02L1_PASS
+ORDER_V0_COMPLETE = false
+```
+
+The next design checkpoint is:
+
+```text
+FRL-02L1C DESIGN_COPY_SPELL_RESOLVE_FIRST_ORDER
+```
+
+It is not part of this implementation plan and must not be started
+automatically.

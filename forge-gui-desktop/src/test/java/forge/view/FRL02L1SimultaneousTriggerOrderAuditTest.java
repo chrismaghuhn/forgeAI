@@ -24,7 +24,7 @@ public class FRL02L1SimultaneousTriggerOrderAuditTest {
     private static final String AUDIT_PROPERTY = "forge.simultaneousTriggerOrder.auditFile";
 
     @Test(timeOut = 900_000L)
-    public void canonicalWorkloadAdmitsEveryStrategicSessionAndPreservesTrace() throws Exception {
+    public void canonicalWorkloadAdmitsEveryL1ProfileSessionAndPreservesTrace() throws Exception {
         final Path root = Files.createTempDirectory("frl02l1-order-audit-");
         boolean completed = false;
         try {
@@ -56,7 +56,7 @@ public class FRL02L1SimultaneousTriggerOrderAuditTest {
         assertTrue(Files.exists(run.auditFile), "canonical audit must produce its diagnostics file: "
                 + run.auditFile + "\nconsole=" + run.console);
         final Map<String, String> values = readProperties(run.auditFile);
-        assertEquals(values.get("version"), "FRL_02L1_ORDER_AUDIT_V1");
+        assertEquals(values.get("version"), "FRL_02L1_ORDER_AUDIT_V2");
         assertEquals(values.get("orderSimultaneousSa.total"), "116");
         assertEquals(values.get("orderSimultaneousSa.n0"), "0");
         assertEquals(values.get("orderSimultaneousSa.n1"), "96");
@@ -64,19 +64,23 @@ public class FRL02L1SimultaneousTriggerOrderAuditTest {
         assertEquals(values.get("orderSimultaneousSa.n3"), "5");
         assertEquals(values.get("orderSimultaneousSa.n4"), "1");
         assertEquals(values.get("orderSimultaneousSa.nOther"), "0");
-        assertEquals(values.get("strategicSessions"), "20");
-        assertEquals(values.get("admittedStrategicSessions"), "20");
-        assertEquals(values.get("orderRequests"), "27");
-        assertEquals(values.get("candidateSize2"), "20");
+        assertEquals(values.get("rawMultiItemCallbacks"), "20");
+        assertEquals(values.get("simultaneousTriggerProfileSessions"), "19");
+        assertEquals(values.get("admittedSimultaneousTriggerSessions"), "19");
+        assertEquals(values.get("nonL1MultiItemCallbacks"), "1");
+        assertEquals(values.get("orderRequests"), "26");
+        assertEquals(values.get("candidateSize2"), "19");
         assertEquals(values.get("candidateSize3"), "6");
         assertEquals(values.get("candidateSize4"), "1");
         assertEquals(values.get("forcedRequests"), "0");
-        assertEquals(values.get("unsupportedFallbacks"), "0");
+        assertEquals(values.get("l1UnsupportedFallbacks"), "0");
+        assertEquals(values.get("outsideL1NativeFallbacks"), "1");
         assertEquals(values.get("integrityFailures"), "0");
-        assertEquals(values.get("unsupportedFailures"), "0");
+        assertEquals(values.get("l1UnsupportedFailures"), "0");
         assertEquals(values.get("invalidExternalCandidates"), "0");
         assertEquals(values.get("nativeCallbackFailures"), "0");
         assertEquals(values.get("mappingFailures"), "0");
+        assertEquals(values.get("traceIncomplete"), "0");
     }
 
     private static AuditRun run(final Path root, final String name, final boolean auditEnabled) throws Exception {

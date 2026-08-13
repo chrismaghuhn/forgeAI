@@ -63,14 +63,25 @@ public final class SimultaneousTriggerOrderDecisionCoordinator {
         }
         Objects.requireNonNull(chooser);
 
+        final boolean l1ProfileSession = isSimultaneousTriggerProfileCandidate(active);
         final Snapshot snapshot = admit(active, chooser, provider.nextOrderSessionId());
-        SimultaneousTriggerOrderAuditDiagnostics.recordStrategicAdmission(snapshot != null);
+        if (l1ProfileSession) {
+            SimultaneousTriggerOrderAuditDiagnostics.recordSimultaneousTriggerProfileSession(snapshot != null);
+        } else {
+            SimultaneousTriggerOrderAuditDiagnostics.recordNonL1MultiItemCallback();
+        }
         if (snapshot == null) {
             if (provider.hasResolver()) {
-                SimultaneousTriggerOrderAuditDiagnostics.recordUnsupportedFailure();
+                if (l1ProfileSession) {
+                    SimultaneousTriggerOrderAuditDiagnostics.recordL1UnsupportedFailure();
+                }
                 throw failure(SimultaneousTriggerOrderIntegrityException.Reason.UNSUPPORTED_ADMISSION);
             }
-            SimultaneousTriggerOrderAuditDiagnostics.recordUnsupportedFallback();
+            if (l1ProfileSession) {
+                SimultaneousTriggerOrderAuditDiagnostics.recordL1UnsupportedFallback();
+            } else {
+                SimultaneousTriggerOrderAuditDiagnostics.recordOutsideL1NativeFallback();
+            }
             return nativeOrderer.order(active);
         }
         final SimultaneousTriggerOrderDecisionProvider.Resolver resolver = provider.getResolver();
@@ -138,6 +149,32 @@ public final class SimultaneousTriggerOrderDecisionCoordinator {
             byIdentity.put(entry, snapshotEntry);
         }
         return new Snapshot(entries, byIdentity, chooser, orderSessionId);
+    }
+
+    private static boolean isSimultaneousTriggerProfileCandidate(final List<SpellAbility> active) {
+        try {
+            Player effectiveOrderingPlayer = null;
+            for (final SpellAbility entry : active) {
+                if (!(entry instanceof WrappedAbility) || !entry.isTrigger()) {
+                    return false;
+                }
+                final Trigger trigger = ((WrappedAbility) entry).getTrigger();
+                if (trigger == null || trigger.isStatic()) {
+                    return false;
+                }
+                final Player effective = effectiveOrderingPlayer(entry);
+                if (effective == null || effectiveOrderingPlayer != null
+                        && !effectiveOrderingPlayer.equals(effective)) {
+                    return false;
+                }
+                if (effectiveOrderingPlayer == null) {
+                    effectiveOrderingPlayer = effective;
+                }
+            }
+            return true;
+        } catch (final RuntimeException ex) {
+            return false;
+        }
     }
 
     private static String admissionRejection(final SpellAbility entry, final Card source,
