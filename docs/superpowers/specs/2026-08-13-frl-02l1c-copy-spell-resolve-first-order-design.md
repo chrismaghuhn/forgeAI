@@ -4,6 +4,8 @@ Status: design-only checkpoint
 
 Date: 2026-08-13
 
+Revision: 1 — review closure for BC persistence and router ownership
+
 Base checkpoint: `93e89a98a4866bca7c3794576a6df60dbd6693ae`
 
 Branch: `frl/02l1c-copy-spell-resolve-first-order`
@@ -58,8 +60,8 @@ The following inventory is the semantic boundary used by this design.
 | `forge-game/src/main/java/forge/game/ability/effects/CopySpellAbilityEffect.java` | Creates a batch of copied abilities and calls `orderAndPlaySimultaneousSa(copies)` after the copy list is complete. | Exact L1C seam. |
 | `forge-game/src/main/java/forge/game/card/CardFactory.java` | The production copy factory used by the effect. For a copied spell it creates a copied host, marks it as a copied spell, retains the original in `getCopiedPermanent()`, copies the ability, marks the ability copied, and sets `getCastSA()` to the copied spell. | Required provenance evidence for admission. |
 | `forge-ai/src/main/java/forge/ai/PlayerControllerAi.java` | Current AI entry point for `orderSimultaneousSa`; it delegates to the existing L1 coordinator and then to the native AI ordering callback. | Add one thin profile dispatcher here; keep the existing L1 coordinator narrow. |
-| `forge-game/src/main/java/forge/game/player/PlayerController.java` | Controller-owned registration surface for decision providers/resolvers. | Add a separate L1C resolver/provider slot and shared deterministic ID authority; do not reuse resolver presence across profiles. |
-| `forge-game/src/main/java/forge/game/stack/MagicStack.java` | Inserts entries with add-first LIFO behavior and later resolves the top entry. | Existing downstream behavior; no change required. |
+| `forge-game/src/main/java/forge/game/player/PlayerController.java` | Controller-owned registration surface for decision providers/resolvers. | Add a separate L1C resolver/provider slot; do not reuse resolver presence or counters across profiles. |
+| `forge-game/src/main/java/forge/game/zone/MagicStack.java` | Inserts entries with add-first LIFO behavior and later resolves the top entry. | Existing downstream behavior; no change required. |
 | `forge-ai/src/main/java/forge/ai/AiController.java` | Native AI ordering callback. The observed exact DealDamage pair returns its native identity/insertion ordering without using hidden opponent data or RNG on that path. | Native teacher for L1C, subject to public-symmetry BC filtering. |
 | `forge-gui/src/main/java/forge/player/PlayerControllerHuman.java` | Native human ordering UI and existing reverse insertion handling. | Preserve the human/native path; do not introduce the external L1C resolver into the UI path in this milestone. |
 | `forge-game/src/main/java/forge/game/ability/effects/RunChaosEffect.java` | Creates wrapped/trigger-style entries. | Not L1C; preserve the existing trigger or unsupported classification. |
@@ -144,19 +146,40 @@ non-copied `SpellApiBased` entry, a trigger batch, a mixed trigger/copy batch,
 a mixed-player batch, a hidden source, a null API, or a missing provenance
 marker is not an admitted L1C session.
 
-The router distinguishes three cases:
+### Pure pre-classification and closed ownership predicate
 
-* An exact L1C batch is routed to the L1C coordinator.
-* A recognizably copy-intended but malformed batch is treated as an L1C
-  admission failure if an L1C resolver is installed; it hard-fails without a
-  native fallback. With no L1C resolver, it follows the existing native-only
-  compatibility path.
-* An unrelated or unowned batch is not claimed by L1C. It must not be made to
-  fail merely because an L1C resolver exists. It follows the existing native
-  path unless another exact, separately owned profile claims it.
+The router performs a pure, resolver-independent pre-classification before
+running the strict L1C admission. It has exactly these classes:
 
-This preserves fail-closed behavior at the intended boundary while preventing
-resolver presence from changing another profile's semantics.
+* `L1_EXACT`: the existing exact L1 trigger predicate succeeds. L1 owns this
+  batch and the L1C resolver is irrelevant.
+* `COPY_SPELL_FAMILY_INTENT`: `active != null`, `active.size() >= 2`, and
+  every entry is non-null, `isSpell()`, `isCopied()`, has a non-null host, and
+  that host is marked as a copied-spell game piece. This predicate does not
+  inspect `SpellApiBased`, source lineage, API, players, visibility,
+  `getCastSA()`, targets, or resolver presence.
+* `UNOWNED_OTHER`: every other shape, including null input, n=0/n=1, a null
+  entry, a copied non-spell, a mixed trigger/copy batch that does not satisfy
+  the family predicate, and unrelated `SpellApiBased` input. If inspection
+  throws, classification is `UNOWNED_OTHER`; the router never lets an
+  exception or an unknown shape claim L1C ownership.
+
+The pre-classifier is the complete ownership boundary. It is pure, does not
+mutate the list, and has no resolver-dependent branch.
+
+Only a batch classified as `COPY_SPELL_FAMILY_INTENT` proceeds to the strict
+admission above:
+
+* family intent plus strict admission success -> exact L1C;
+* family intent plus strict admission failure -> `MALFORMED_L1C_INTENT`; and
+* no family intent -> `UNOWNED_OTHER`.
+
+`MALFORMED_L1C_INTENT` with an active L1C resolver is a hard fail-closed
+admission failure with no native fallback. Without an L1C resolver it follows
+the existing native compatibility path. `UNOWNED_OTHER` never consults the
+L1C resolver and therefore cannot be changed by its presence. This makes the
+decision `MALFORMED_L1C_INTENT` versus `UNOWNED_OTHER` a closed predicate,
+not an implementation-time judgment.
 
 ## 5. Choosing-player authority
 
@@ -289,17 +312,20 @@ captures that resolver once when a session begins. A resolver setter change
 after session start does not change the active session's callback source.
 
 Do not reuse the L1 trigger provider object or a global resolver. To preserve
-controller-local uniqueness without coupling the profiles, both narrow
-providers may use one controller-local
-`OrderDecisionIdAuthority` for monotonic request and order-session IDs. The
-authority is not a generic decision framework: it only centralizes the
-existing deterministic counters so L1 and L1C IDs cannot collide on one
-controller.
+controller-local uniqueness without coupling the profiles. The existing L1
+provider keeps its current `nextRequestId` and `nextOrderSessionId` counters
+unchanged. The new L1C provider owns separate counters with the same
+controller-local, monotonic semantics. There is deliberately no shared
+`OrderDecisionIdAuthority`: no current consumer requires global
+`DecisionRequest`-ID uniqueness, and introducing one would add L1 churn
+without improving trace correctness.
 
 IDs must not use time, random state, UUIDs, static global counters, or native
-object identity. `DeterminismTrace` keeps its own trace request index; the
-training join uses trace index/profile/stage rather than assuming a
-profile-local `DecisionRequest` ID is globally unique.
+object identity. Public/session correlation is `(profile, sessionId,
+stepIndex)`. `DeterminismTrace` keeps its existing global per-game trace
+request index, so persisted joins use `traceRequestIndex` plus profile/stage;
+they do not assume that a provider-local `DecisionRequest` ID is globally
+unique.
 
 ## 10. Request and context contract
 
@@ -414,17 +440,18 @@ already exact:
 | Condition | Result | Native fallback? | Stack mutation? |
 | --- | --- | --- | --- |
 | Same native object twice or malformed initial identity snapshot | `SESSION_INTEGRITY_FAILURE` | No | No |
-| Exact profile admission failure with active L1C resolver | `UNSUPPORTED_ADMISSION` or typed admission failure | No | No |
+| `MALFORMED_L1C_INTENT` with active L1C resolver | Typed fail-closed admission failure | No | No |
 | Native callback throws | `NATIVE_CALLBACK_FAILURE` | No | No |
 | Native result is not an identity permutation | `MAPPING_FAILED` | No | No |
 | External result invalid/stale/foreign/wrong profile | `INVALID_EXTERNAL_CANDIDATE` | No | No |
 | Exact L1C batch without resolver | Native teacher path | N/A | Only downstream after valid return |
 | Unowned batch with no profile owner | Existing native compatibility path | Yes, by existing ownership | Existing downstream behavior |
 
-Null lists and singleton/empty lists do not create an L1C ORDER request. They
-retain the existing controller boundary behavior and must not call an external
-resolver. A null list is an invalid invocation if a profile owner has claimed
-the call; it must not be silently turned into an invented candidate domain.
+The pre-classifier maps null lists, empty/singleton lists, null entries, and
+other shapes outside the family predicate to `UNOWNED_OTHER`. They do not
+create an L1C ORDER request and must not call an L1C resolver; the existing
+controller boundary handles their native compatibility behavior. The router
+never turns a null or unknown input into an invented candidate domain.
 
 The engine-boundary exception is fail-closed. The coordinator never converts a
 failure into a fabricated `ActionContinuation`, synthetic candidate, or
@@ -512,6 +539,55 @@ This policy changes only the offline BC sample filter for the C profile. It
 does not alter online resolver behavior, native list order, game state, RNG,
 trace history, or target setup.
 
+### Persisted BC-eligibility contract
+
+The public-symmetry decision is a request property and must be persisted; it
+must not be reconstructed later from `RESOLVE_FIRST|<itemId>` semantic keys or
+from the candidate-set hash. The current `DecisionTraceRequestRecord` stores
+only semantic candidate strings, so the existing `DECISION_TRACE_V2` shape
+cannot represent the L1C decision reproducibly.
+
+Add the typed value enum
+`DecisionTraceTeacherLabelEligibility` with at least:
+
+* `NOT_APPLICABLE` for non-ORDER requests;
+* `BC_ELIGIBLE` when a successful native CHOSEN result may be admitted to BC;
+  and
+* `BC_EXCLUDED_PUBLIC_SYMMETRY` when the request-local public projections are
+  symmetric after removing `itemId`.
+
+`DecisionTraceRequestRecord` carries this field. The L1C coordinator computes
+it once from the captured public item projections at request creation. The
+existing L1 coordinator supplies `BC_ELIGIBLE` for its exact ORDER requests,
+preserving the current native-teacher behavior and V2 output. External
+results still remain non-BC through their existing lifecycle flags. The
+training validator's BC predicate requires `BC_ELIGIBLE` in addition to the
+existing native-completed, mapping-attempted, CHOSEN, non-forced checks. A
+missing or malformed L1C eligibility value is never treated as eligible.
+
+This is a new persisted trace version, not an extension with ambiguous
+optional V2 columns:
+
+* L1-only traces with no L1C request remain byte-compatible
+  `DECISION_TRACE_V2` traces.
+* Any trace containing an L1C request is written wholly as
+  `DECISION_TRACE_V3`; V2 and V3 records are never mixed in one file.
+  `DeterminismTrace` therefore decides the per-trace version before writing
+  the file (or buffers structured records until `finish()`); it must not emit
+  an early V2 prefix and later append a V3 request.
+* The V3 REQUEST record retains the V2 fields and appends the typed profile
+  and `DecisionTraceTeacherLabelEligibility` value. The paired RESULT record
+  retains the current selected-key and lifecycle flags; the eligibility is
+  request-scoped and is joined by `traceRequestIndex`.
+* The summary records `decisionTraceVersion=DECISION_TRACE_V3` for a C-bearing
+  trace. Offline consumers must require the V3 request metadata for L1C BC
+  admission and must fail closed to BC=false if it is absent.
+
+Thus a stored canonical pair contains both the normal REQUEST/RESULT history
+and an explicit `BC_EXCLUDED_PUBLIC_SYMMETRY` label. The offline validator can
+reproduce the Pyromatics decision without access to Forge objects or the
+original public projections.
+
 ## 17. Hidden-information and determinism analysis
 
 Admission reads the original copied source only after checking that it is
@@ -586,6 +662,12 @@ Raw callback accounting happens once at the dispatcher boundary. Profile
 counters happen only after classification/admission. Diagnostics remain
 disabled by default, value-only, and unable to change engine control flow.
 
+Decision-trace versioning is separate from the raw/profile audit counter
+version: the canonical run containing the L1C request must produce
+`DECISION_TRACE_V3`, while an L1-only control run may remain
+`DECISION_TRACE_V2`. Audit instrumentation must not change either version or
+the resulting trace hash.
+
 ## 19. Canonical acceptance lock
 
 The implementation milestone must run the existing controlled workload in a
@@ -614,6 +696,7 @@ The acceptance lock is:
 | L1C candidate size 2 | 1 |
 | L1C forced requests | 0 |
 | L1C native teacher callbacks | 1 in the native canonical run |
+| Decision trace version | `DECISION_TRACE_V3` for the C-bearing run |
 | Mapping failures | 0 |
 | Trace incomplete | 0 |
 
@@ -656,6 +739,12 @@ before L1C implementation can be accepted.
   resolver.
 * Native records remain history-valid; symmetric native records are excluded
   from BC, while non-symmetric native records remain eligible.
+* The canonical duplicate-looking request persists
+  `BC_EXCLUDED_PUBLIC_SYMMETRY` in `DECISION_TRACE_V3`; the validator returns
+  BC=false even when the result has native-completed and mapping-attempted
+  flags.
+* A C-bearing trace missing the typed eligibility metadata fails closed to
+  BC=false, and an L1-only trace remains valid under `DECISION_TRACE_V2`.
 * All intentional paths have exactly one terminal result and zero intentional
   `TRACE_INCOMPLETE`.
 
@@ -689,6 +778,8 @@ Routing tests must prove all of the following in one process:
 * L1-only input uses only the L1 provider/resolver;
 * L1C-only input uses only the L1C provider/resolver;
 * a mixed batch is not admitted to either profile;
+* the pure family-intent predicate deterministically separates
+  `MALFORMED_L1C_INTENT` from `UNOWNED_OTHER` before resolver lookup;
 * resolver presence in one profile does not hard-fail another profile;
 * raw callback accounting occurs once;
 * no coordinator calls the native callback twice;
@@ -720,8 +811,9 @@ versioned split diagnostics.
 
 **Files/types affected:** `PlayerControllerAi`, `PlayerController`, a narrow
 `OrderProfileRouter`, the new L1C profile/context/item/source projection,
-provider, coordinator, shared ID authority, pure translation helper, typed
-`DecisionRequest`/`LegalCandidate` extensions, trace validator, and versioned
+provider, coordinator, pure translation helper, typed
+`DecisionRequest`/`LegalCandidate` extensions,
+`DecisionTraceTeacherLabelEligibility`, trace validator, and versioned
 diagnostics.
 
 **Semantic clarity:** Highest. One entry point assigns each callback to one
@@ -736,7 +828,8 @@ profile. Malformed C-shaped batches cannot fall through to L1, while unrelated
 batches do not fail because an L1C resolver is present.
 
 **Diagnostics:** Clean split between raw callbacks, L1, L1C, and unowned
-fallbacks. Raw accounting cannot double-count.
+fallbacks. Raw accounting cannot double-count, and the V3 trace stores the
+typed BC eligibility instead of requiring projection reconstruction.
 
 **Future L2:** A future profile can add one explicit classifier branch and its
 own coordinator without making L1 or L1C understand it. This is a routing
@@ -790,19 +883,21 @@ Choose Alternative A:
 
 1. Keep L1's exact coordinator and public types semantically unchanged.
 2. Add one thin AI entry router that records raw invocation once and selects
-   exactly one profile owner.
-3. Add a separate L1C provider/resolver and a shared controller-local ID
-   authority, not a shared resolver or generic permutation API.
+   exactly one profile owner using the closed family-intent predicate.
+3. Add a separate L1C provider/resolver with its own deterministic counters;
+   leave the existing L1 provider counters unchanged.
 4. Add typed L1C value DTOs and profile-discriminated request validation.
 5. Capture private native identity with `IdentityHashMap`; use only
    session-local ordinals publicly.
 6. Use one pure reverse translation for semantic resolve-first versus native
    insertion order.
-7. Keep `CopySpellAbilityEffect`, `MagicStack`, target setup, and the human
+7. Persist request-scoped BC eligibility in `DECISION_TRACE_V3` for any
+   C-bearing trace; keep L1-only traces on V2.
+8. Keep `CopySpellAbilityEffect`, `MagicStack`, target setup, and the human
    controller behavior unchanged.
-8. Keep native C records as history, exclude symmetric requests from BC, and
+9. Keep native C records as history, exclude symmetric requests from BC, and
    retain non-symmetric native labels.
-9. Version/split diagnostics explicitly and lock the canonical values above.
+10. Version/split diagnostics explicitly and lock the canonical values above.
 
 This architecture is the smallest one that closes the three required risks:
 router separation, ORDER/TARGET identity, and the symmetric Pyromatics teacher
@@ -816,7 +911,6 @@ none of these files is changed by this checkpoint.
 
 * `forge-ai/src/main/java/forge/ai/PlayerControllerAi.java`
 * `forge-game/src/main/java/forge/game/player/PlayerController.java`
-* `forge-game/src/main/java/forge/game/decision/OrderDecisionIdAuthority.java`
 * `forge-game/src/main/java/forge/game/decision/OrderResolutionTranslation.java`
 * `forge-game/src/main/java/forge/game/decision/OrderProfileRouter.java`
 * `forge-game/src/main/java/forge/game/decision/CopySpellResolveFirstOrderProfile.java`
@@ -827,12 +921,15 @@ none of these files is changed by this checkpoint.
 * `forge-game/src/main/java/forge/game/decision/CopySpellResolveFirstOrderDecisionCoordinator.java`
 * `forge-game/src/main/java/forge/game/decision/DecisionRequest.java`
 * `forge-game/src/main/java/forge/game/decision/LegalCandidate.java`
+* `forge-game/src/main/java/forge/game/decision/DecisionTraceRequestRecord.java`
+* `forge-game/src/main/java/forge/game/decision/DecisionTraceTeacherLabelEligibility.java`
 * `forge-game/src/main/java/forge/game/decision/DecisionTraceTrainingValidator.java`
 * `forge-game/src/main/java/forge/game/decision/DeterminismTrace.java`
 * `forge-game/src/main/java/forge/game/decision/SimultaneousTriggerOrderAuditDiagnostics.java`
 * `forge-game/src/main/java/forge/game/decision/SimultaneousTriggerOrderDecisionCoordinator.java`
 * `forge-gui-desktop/src/test/java/forge/game/decision/CopySpellResolveFirstOrderPublicApiTest.java`
 * `forge-gui-desktop/src/test/java/forge/game/decision/CopySpellResolveFirstOrderTraceTest.java`
+* `forge-gui-desktop/src/test/java/forge/game/decision/DecisionTraceV3Test.java`
 * `forge-gui-desktop/src/test/java/forge/game/decision/CopySpellResolveFirstOrderCoordinatorTest.java`
 * `forge-gui-desktop/src/test/java/forge/game/decision/CopySpellResolveFirstOrderEngineIntegrationTest.java`
 * `forge-gui-desktop/src/test/java/forge/view/FRL02L1CCopySpellResolveFirstOrderAuditTest.java`
@@ -866,6 +963,8 @@ P0 findings: 0.
 
 P1 findings: 0.
 
+P2 findings: 0.
+
 The previously risky points are resolved at design level:
 
 * copied-host `CardSelectionCard` leakage is avoided with a minimal source
@@ -877,7 +976,18 @@ The previously risky points are resolved at design level:
 * downstream TARGET is explicitly marked as not yet externally owned but
   requiring typed correlation before any future externalization; and
 * the canonical symmetric Pyromatics native choice is history-valid but not a
-  BC label for that request.
+  BC label for that request;
+* `BC_EXCLUDED_PUBLIC_SYMMETRY` is persisted in `DECISION_TRACE_V3` and is
+  required by the offline validator; and
+* `COPY_SPELL_FAMILY_INTENT` is a pure, resolver-independent predicate whose
+  failure routes to `UNOWNED_OTHER`, while strict-admission failure after a
+  positive family intent is `MALFORMED_L1C_INTENT`.
+
+The review's ID-isolation point is also closed: L1 retains its existing
+provider-local counters, L1C gets separate provider-local counters, and
+`(profile, sessionId, stepIndex)` is the public/session correlation. The
+caller inventory records the actual `forge-game/src/main/java/forge/game/zone/MagicStack.java`
+path.
 
 No contradiction in the current accepted L1 implementation or canonical
 checkpoint blocks this design. The historical conclusion that the copied-spell
@@ -892,7 +1002,7 @@ the design coherent.
 
 FRL-02L1 remains PASS. FRL-02L1C is approved for a later implementation
 milestone with the exact admission, routing, projection, identity, TARGET,
-teacher/BC, diagnostics, and acceptance locks defined above.
+teacher/BC persistence, diagnostics, and acceptance locks defined above.
 
 The next milestone must be implementation-only after review of this artifact.
 No implementation is part of FRL-02L1C design.
