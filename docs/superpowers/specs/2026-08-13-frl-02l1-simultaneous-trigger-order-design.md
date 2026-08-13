@@ -509,6 +509,32 @@ that throws before returning, record the terminal `NATIVE_CALLBACK_FAILURE`
 result with `false/false`. Neither path may be represented as
 `TRACE_INCOMPLETE`.
 
+### 7.1 DecisionTraceTrainingValidator contract
+
+The existing structural validator must treat ORDER history explicitly. Extend
+its external `CHOSEN` allowlist from `CONFIRMATION`/`TARGET` to include
+`DecisionType.ORDER`, without making any other decision type external by
+default.
+
+For an ORDER request, `request.forced` is always false. The exact validator
+contract is:
+
+| Result | `isHistoryValid` | `isBCPolicySample` | Required conditions |
+|---|---:|---:|---|
+| `ORDER + CHOSEN + false/false` | `true` | `false` | selected semantic key is contained in the request candidates |
+| `ORDER + CHOSEN + true/true` | `true` | `true` | selected semantic key is contained in the request candidates |
+| `INVALID_EXTERNAL_CANDIDATE` | `true` | `false` | selected key is empty; native and mapping flags are both false |
+| `NATIVE_CALLBACK_FAILURE` | `true` | `false` | selected key is empty; native and mapping flags are both false |
+| `MAPPING_FAILED` | `true` | `false` | existing empty-key, `true/true` semantics remain unchanged |
+
+For both ORDER `CHOSEN` rows, the selected key must be legal and the request
+must not be forced. `ORDER + CHOSEN + false/false` is valid external history
+but is never a BC policy sample. `ORDER + CHOSEN + true/true` is valid native
+teacher history and is a BC policy sample. The two terminal failure kinds are
+structurally valid terminal history records so `validateRecords()` accepts a
+complete trace with no `TRACE_INCOMPLETE` record, but neither is a training
+label. Every request still requires exactly one terminal result.
+
 The forced final item has no request and no synthetic CHOSEN result. The session
 correlation uses orderSessionId; ActionContinuation, decisionSequenceId, and
 subdecisionIndex remain absent/null.
@@ -665,7 +691,8 @@ limited to:
 - separate SESSION_INTEGRITY_FAILURE handling that never falls back to native;
 - controller-local coordinator/provider seam and resolver capture;
 - PlayerControllerAi thin routing integration;
-- trace/validator support for the typed ORDER stage and terminal
+- trace/validator support for the typed ORDER stage, external ORDER
+  `CHOSEN false/false`, and terminal
   INVALID_EXTERNAL_CANDIDATE/NATIVE_CALLBACK_FAILURE result kinds;
 - the centralized pure LIFO translation;
 - focused unit, public-API, failure, trace, and real-engine integration tests;
@@ -680,7 +707,7 @@ outside this map requires a new design checkpoint and explicit scope review.
 
 ~~~text
 P0: none identified
-P1: four review gaps fixed in this revision; reviewer confirmation pending
+P1: five review gaps fixed in this revision; reviewer confirmation pending
 ~~~
 
 The revision preserves fail-closed ownership, public-contract safety, native
