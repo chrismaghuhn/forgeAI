@@ -255,10 +255,10 @@ public class SurveilPartitionSessionTest extends AITest {
         final Fixture fixture = fixture("Island");
         final SurveilPartitionDecisionProvider provider = new SurveilPartitionDecisionProvider();
 
-        final NullPointerException failure = expectThrows(NullPointerException.class,
+        final SurveilPartitionAdmissionFailure failure = expectThrows(SurveilPartitionAdmissionFailure.class,
                 () -> provider.admit(fixture.chooser(), Arrays.asList(fixture.cards().get(0), null)));
 
-        assertEquals(failure.getMessage(), "privateSnapshot card");
+        assertEquals(failure.reason(), SurveilPartitionAdmissionFailureReason.SESSION_INTEGRITY_FAILURE);
         assertEquals(provider.activeSessionCount(), 0);
     }
 
@@ -279,8 +279,9 @@ public class SurveilPartitionSessionTest extends AITest {
         final SurveilPartitionDecisionProvider provider = new SurveilPartitionDecisionProvider();
         final Card sameCard = fixture.cards().get(0);
 
-        expectThrows(IllegalArgumentException.class,
+        final SurveilPartitionAdmissionFailure failure = expectThrows(SurveilPartitionAdmissionFailure.class,
                 () -> provider.admit(fixture.chooser(), List.of(sameCard, sameCard)));
+        assertEquals(failure.reason(), SurveilPartitionAdmissionFailureReason.SESSION_INTEGRITY_FAILURE);
         assertEquals(provider.activeSessionCount(), 0);
     }
 
@@ -291,8 +292,9 @@ public class SurveilPartitionSessionTest extends AITest {
         final Card duplicateStableIdentity = copyWithStableIdentity(fixture.chooser(), first);
         final SurveilPartitionDecisionProvider provider = new SurveilPartitionDecisionProvider();
 
-        expectThrows(IllegalArgumentException.class,
+        final SurveilPartitionAdmissionFailure failure = expectThrows(SurveilPartitionAdmissionFailure.class,
                 () -> provider.admit(fixture.chooser(), List.of(first, duplicateStableIdentity)));
+        assertEquals(failure.reason(), SurveilPartitionAdmissionFailureReason.SESSION_INTEGRITY_FAILURE);
         assertEquals(provider.activeSessionCount(), 0);
     }
 

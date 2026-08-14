@@ -42,12 +42,40 @@ final class SurveilPartitionSession {
     SurveilPartitionSession(final long surveilSessionId, final Player chooser,
             final List<Card> privateSnapshot) {
         this.surveilSessionId = surveilSessionId;
-        this.chooser = Objects.requireNonNull(chooser, "chooser");
-        this.game = Objects.requireNonNull(chooser.getGame(), "chooser game");
-        this.gameId = game.getId();
-        this.choosingPlayerId = chooser.getId();
-        this.nativeSnapshot = Collections.unmodifiableList(new ArrayList<>(
-                Objects.requireNonNull(privateSnapshot, "privateSnapshot")));
+        if (chooser == null) {
+            throw new SurveilPartitionAdmissionFailure(
+                    SurveilPartitionAdmissionFailureReason.UNSUPPORTED_ADMISSION,
+                    "chooser authority is unavailable");
+        }
+        this.chooser = chooser;
+        final Game capturedGame;
+        final int capturedGameId;
+        final int capturedChooserId;
+        try {
+            capturedGame = chooser.getGame();
+            if (capturedGame == null) {
+                throw new SurveilPartitionAdmissionFailure(
+                        SurveilPartitionAdmissionFailureReason.UNSUPPORTED_ADMISSION,
+                        "chooser game authority is unavailable");
+            }
+            capturedGameId = capturedGame.getId();
+            capturedChooserId = chooser.getId();
+        } catch (final SurveilPartitionAdmissionFailure failure) {
+            throw failure;
+        } catch (final RuntimeException failure) {
+            throw new SurveilPartitionAdmissionFailure(
+                    SurveilPartitionAdmissionFailureReason.UNSUPPORTED_ADMISSION,
+                    "chooser authority is unavailable", failure);
+        }
+        this.game = capturedGame;
+        this.gameId = capturedGameId;
+        this.choosingPlayerId = capturedChooserId;
+        if (privateSnapshot == null) {
+            throw new SurveilPartitionAdmissionFailure(
+                    SurveilPartitionAdmissionFailureReason.UNSUPPORTED_ADMISSION,
+                    "private snapshot authority is unavailable");
+        }
+        this.nativeSnapshot = Collections.unmodifiableList(new ArrayList<>(privateSnapshot));
         this.nativeItems = new IdentityHashMap<>();
         this.symmetryLabels = new HashMap<>();
         this.symmetryConflicts = new HashMap<>();
@@ -55,19 +83,49 @@ final class SurveilPartitionSession {
         final Set<StableIdentity> stableIdentities = new HashSet<>();
         final List<SurveilItem> capturedItems = new ArrayList<>(nativeSnapshot.size());
         for (int nativeOrdinal = 0; nativeOrdinal < nativeSnapshot.size(); nativeOrdinal++) {
-            final Card card = Objects.requireNonNull(nativeSnapshot.get(nativeOrdinal), "privateSnapshot card");
+            final Card card = nativeSnapshot.get(nativeOrdinal);
+            if (card == null) {
+                throw new SurveilPartitionAdmissionFailure(
+                        SurveilPartitionAdmissionFailureReason.SESSION_INTEGRITY_FAILURE,
+                        "private snapshot contains a null card");
+            }
             if (nativeItems.containsKey(card)) {
-                throw new IllegalArgumentException("Surveil snapshot contains the same native card twice");
+                throw new SurveilPartitionAdmissionFailure(
+                        SurveilPartitionAdmissionFailureReason.SESSION_INTEGRITY_FAILURE,
+                        "private snapshot contains duplicate native identity");
             }
             if (!isVisibleToChooser(card, chooser)) {
-                throw new IllegalArgumentException("Surveil snapshot contains a card hidden from the chooser");
+                throw new SurveilPartitionAdmissionFailure(
+                        SurveilPartitionAdmissionFailureReason.UNSUPPORTED_ADMISSION,
+                        "private snapshot is not chooser-visible");
             }
-            final StableIdentity stableIdentity = new StableIdentity(card.getId(), card.getGameTimestamp());
+            final StableIdentity stableIdentity;
+            try {
+                stableIdentity = new StableIdentity(card.getId(), card.getGameTimestamp());
+            } catch (final RuntimeException failure) {
+                throw new SurveilPartitionAdmissionFailure(
+                        SurveilPartitionAdmissionFailureReason.SESSION_INTEGRITY_FAILURE,
+                        "private stable identity is unavailable", failure);
+            }
             if (!stableIdentities.add(stableIdentity)) {
-                throw new IllegalArgumentException("Surveil snapshot contains duplicate stable card identity");
+                throw new SurveilPartitionAdmissionFailure(
+                        SurveilPartitionAdmissionFailureReason.SESSION_INTEGRITY_FAILURE,
+                        "private snapshot contains duplicate stable identity");
             }
 
-            final String visibleName = Objects.requireNonNull(card.getName(), "card visible name");
+            final String visibleName;
+            try {
+                visibleName = card.getName();
+            } catch (final RuntimeException failure) {
+                throw new SurveilPartitionAdmissionFailure(
+                        SurveilPartitionAdmissionFailureReason.UNSUPPORTED_ADMISSION,
+                        "chooser-visible projection is unavailable", failure);
+            }
+            if (visibleName == null) {
+                throw new SurveilPartitionAdmissionFailure(
+                        SurveilPartitionAdmissionFailureReason.UNSUPPORTED_ADMISSION,
+                        "chooser-visible projection is unavailable");
+            }
             final SurveilPartitionCard projection = new SurveilPartitionCard(0L, visibleName);
             final SurveilItem item = new SurveilItem(card, nativeOrdinal, stableIdentity, projection);
             nativeItems.put(card, item);
@@ -112,6 +170,11 @@ final class SurveilPartitionSession {
 
     boolean hasOpenRequest() {
         return openRequest != null;
+    }
+
+    boolean isCaptureMaterializationReady() {
+        return !closed && !complete && nativeMembershipVector != null
+                && openRequest == null && isIdentityStable();
     }
 
     boolean isIdentityStable() {

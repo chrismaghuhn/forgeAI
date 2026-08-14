@@ -408,32 +408,58 @@ public class SurveilPartitionDecisionCoordinatorTest extends AITest {
     }
 
     @Test
-    public void gameAndPlayerSessionDriftFailsClosedWithoutNativeRetry() {
-        final Fixture fixture = fixture(1);
-        final Fixture otherFixture = fixture(1);
-        final Card card = fixture.cards().get(0);
-        final Pair<CardCollection, CardCollection> nativePair =
-                new ImmutablePair<>(new CardCollection(), new CardCollection(card));
-
+    public void gameAndPlayerSessionDriftSuppressesCaptureAndPreservesNativePair() {
         for (final String driftField : List.of("game", "chooser")) {
+            final Fixture fixture = fixture(1);
+            final Fixture otherFixture = fixture(1);
+            final Card card = fixture.cards().get(0);
+            final Pair<CardCollection, CardCollection> nativePair =
+                    new ImmutablePair<>(new CardCollection(), new CardCollection(card));
             final SurveilPartitionDecisionProvider provider = new SurveilPartitionDecisionProvider();
             final SurveilPartitionDecisionCoordinator coordinator =
                     new SurveilPartitionDecisionCoordinator(provider);
             final AtomicInteger calls = new AtomicInteger();
-            final RuntimeException actual = expectThrows(RuntimeException.class,
-                    () -> assertNoSurveilTraceRows(fixture.game(), () -> coordinator.captureNativeSurveil(
-                            fixture.chooser(), new CardCollection(card), ignored -> {
-                                calls.incrementAndGet();
-                                final SurveilPartitionSession session = soleRegisteredSession(provider);
-                                replaceField(session, driftField,
-                                        "game".equals(driftField) ? otherFixture.game() : otherFixture.chooser());
-                                return nativePair;
-                            })));
+            final AtomicReference<Pair<CardCollection, CardCollection>> returned = new AtomicReference<>();
 
-            assertTrue(actual instanceof IllegalStateException);
-            assertEquals(calls.get(), 1);
-            assertEquals(provider.activeSessionCount(), 0);
+            final List<String> rows = captureTraceRows(fixture.game(), () ->
+                    returned.set(coordinator.captureNativeSurveil(fixture.chooser(), new CardCollection(card), ignored -> {
+                        calls.incrementAndGet();
+                        final SurveilPartitionSession session = soleRegisteredSession(provider);
+                        replaceField(session, driftField,
+                                "game".equals(driftField) ? otherFixture.game() : otherFixture.chooser());
+                        return nativePair;
+                    })));
+
+            assertSame(returned.get(), nativePair, driftField);
+            assertEquals(calls.get(), 1, driftField);
+            assertTrue(rows.stream().noneMatch(row -> row.contains("SURVEIL_PARTITION")), rows.toString());
+            assertEquals(provider.activeSessionCount(), 0, driftField);
         }
+    }
+
+    @Test
+    public void admissionFailuresCarrySemanticReasons() throws Exception {
+        final Fixture nullCardFixture = fixture(1);
+        assertAdmissionFailureReason("null card", nullCardFixture.chooser(),
+                Arrays.asList((Card) null), "SESSION_INTEGRITY_FAILURE");
+
+        final Fixture duplicateObjectFixture = fixture(1);
+        final Card sameCard = duplicateObjectFixture.cards().get(0);
+        assertAdmissionFailureReason("same native object twice", duplicateObjectFixture.chooser(),
+                Arrays.asList(sameCard, sameCard), "SESSION_INTEGRITY_FAILURE");
+
+        final Fixture duplicateTupleFixture = customFixture(new CardSpec("Island", 9501, 750001L));
+        final Card duplicateTuple = copyWithStableIdentity(duplicateTupleFixture.chooser(),
+                duplicateTupleFixture.cards().get(0));
+        assertAdmissionFailureReason("duplicate private stable tuple", duplicateTupleFixture.chooser(),
+                Arrays.asList(duplicateTupleFixture.cards().get(0), duplicateTuple),
+                "SESSION_INTEGRITY_FAILURE");
+
+        final Fixture visibilityFixture = fixture(1);
+        final Card hidden = visibilityFixture.cards().get(0);
+        hidden.setFaceDown(true);
+        assertAdmissionFailureReason("chooser visibility failure", visibilityFixture.chooser(),
+                List.of(hidden), "UNSUPPORTED_ADMISSION");
     }
 
     @Test
@@ -599,6 +625,19 @@ public class SurveilPartitionDecisionCoordinatorTest extends AITest {
         assertSame(actual, externalResolverFailure);
         assertEquals(calls.get(), 1);
         assertEquals(provider.activeSessionCount(), 0);
+    }
+
+    private static void assertAdmissionFailureReason(final String label, final Player chooser,
+            final List<Card> privateSnapshot, final String expectedReason) throws Exception {
+        final SurveilPartitionDecisionProvider provider = new SurveilPartitionDecisionProvider();
+        final RuntimeException failure = expectThrows(RuntimeException.class,
+                () -> provider.admit(chooser, privateSnapshot));
+
+        assertEquals(failure.getClass().getSimpleName(), "SurveilPartitionAdmissionFailure", label);
+        final Method reason = failure.getClass().getDeclaredMethod("reason");
+        reason.setAccessible(true);
+        assertEquals(((Enum<?>) reason.invoke(failure)).name(), expectedReason, label);
+        assertEquals(provider.activeSessionCount(), 0, label);
     }
 
     private void assertAdmissionFallback(final String label, final Player chooser,

@@ -39,8 +39,11 @@ public final class SurveilPartitionDecisionCoordinator {
         final SurveilPartitionSession session;
         try {
             session = provider.admit(chooser, privateSnapshot);
+        } catch (final SurveilPartitionAdmissionFailure admissionFailure) {
+            SurveilPartitionDiagnostics.recordCaptureAdmissionFailure(admissionFailure.reason().name());
+            return invokeNative(originalTopN, nativeArrange);
         } catch (final RuntimeException admissionFailure) {
-            SurveilPartitionDiagnostics.recordCaptureAdmissionFailure(admissionFailure.getClass().getSimpleName());
+            SurveilPartitionDiagnostics.recordCaptureAdmissionFailure("UNKNOWN");
             return invokeNative(originalTopN, nativeArrange);
         }
 
@@ -59,6 +62,10 @@ public final class SurveilPartitionDecisionCoordinator {
             session.recordNativeMembershipVector(vector, normalize(nativePair.getLeft()));
             session.recordSymmetryConflicts(vector);
             SurveilPartitionDiagnostics.recordN2Cardinality(graveyard.size(), privateSnapshot.size() - graveyard.size());
+            if (!provider.isCaptureMaterializationReady(session)) {
+                SurveilPartitionDiagnostics.recordMapping(false, "IDENTITY");
+                return nativePair;
+            }
             afterNativeMembershipVectorCaptured(chooser, session, vector);
             SurveilPartitionDiagnostics.recordMapping(true, "VALID");
             return nativePair;

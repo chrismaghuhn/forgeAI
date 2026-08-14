@@ -27,8 +27,12 @@ public final class SurveilPartitionDecisionProvider {
     }
 
     SurveilPartitionSession admit(final Player chooser, final List<Card> privateSnapshot) {
-        final List<Card> immutableSnapshot = Collections.unmodifiableList(new ArrayList<>(
-                Objects.requireNonNull(privateSnapshot, "privateSnapshot")));
+        if (privateSnapshot == null) {
+            throw new SurveilPartitionAdmissionFailure(
+                    SurveilPartitionAdmissionFailureReason.UNSUPPORTED_ADMISSION,
+                    "private snapshot authority is unavailable");
+        }
+        final List<Card> immutableSnapshot = Collections.unmodifiableList(new ArrayList<>(privateSnapshot));
         final SurveilPartitionSession session = new SurveilPartitionSession(nextSurveilSessionId(), chooser,
                 immutableSnapshot);
         if (!session.isComplete()) {
@@ -66,6 +70,12 @@ public final class SurveilPartitionDecisionProvider {
 
     boolean isComplete(final SurveilPartitionSession session) {
         return Objects.requireNonNull(session, "session").isComplete();
+    }
+
+    boolean isCaptureMaterializationReady(final SurveilPartitionSession session) {
+        return session != null
+                && activeSessions.get(session.surveilSessionId()) == session
+                && session.isCaptureMaterializationReady();
     }
 
     void closeSession(final SurveilPartitionSession session) {
