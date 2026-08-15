@@ -22,6 +22,7 @@ public final class DecisionRequest {
     private final SimultaneousTriggerOrderContext orderContext;
     private final CopySpellResolveFirstOrderContext copySpellResolveFirstOrderContext;
     private final SurveilPartitionContext surveilPartitionContext;
+    private final SurveilRetainedTopOrderContext surveilRetainedTopOrderContext;
 
     DecisionRequest(final long requestId, final DecisionType decisionType, final List<LegalCandidate> candidates) {
         this(requestId, decisionType, candidates, null, null, null, null, null, null, null, null);
@@ -91,6 +92,12 @@ public final class DecisionRequest {
                 null, null, null, surveilPartitionContext);
     }
 
+    DecisionRequest(final long requestId, final DecisionType decisionType, final List<LegalCandidate> candidates,
+            final SurveilRetainedTopOrderContext surveilRetainedTopOrderContext) {
+        this(requestId, decisionType, candidates, null, null, null, null, null, null, null, null,
+                null, null, null, null, surveilRetainedTopOrderContext);
+    }
+
     private DecisionRequest(final long requestId, final DecisionType decisionType,
             final List<LegalCandidate> candidates, final TargetDecisionContext targetContext,
             final PaymentDecisionContext paymentContext, final XDecisionContext xContext,
@@ -145,6 +152,21 @@ public final class DecisionRequest {
             final SimultaneousTriggerOrderContext orderContext,
             final CopySpellResolveFirstOrderContext copySpellResolveFirstOrderContext,
             final SurveilPartitionContext surveilPartitionContext) {
+        this(requestId, decisionType, candidates, targetContext, paymentContext, xContext, modeContext,
+                cardSelectionContext, attackContext, blockContext, mulliganContext, confirmationContext,
+                orderContext, copySpellResolveFirstOrderContext, surveilPartitionContext, null);
+    }
+
+    private DecisionRequest(final long requestId, final DecisionType decisionType,
+            final List<LegalCandidate> candidates, final TargetDecisionContext targetContext,
+            final PaymentDecisionContext paymentContext, final XDecisionContext xContext,
+            final ModeDecisionContext modeContext, final CardSelectionContext cardSelectionContext,
+            final AttackDeclarationContext attackContext, final BlockDeclarationContext blockContext,
+            final MulliganContext mulliganContext, final ConfirmationDecisionContext confirmationContext,
+            final SimultaneousTriggerOrderContext orderContext,
+            final CopySpellResolveFirstOrderContext copySpellResolveFirstOrderContext,
+            final SurveilPartitionContext surveilPartitionContext,
+            final SurveilRetainedTopOrderContext surveilRetainedTopOrderContext) {
         this.requestId = requestId;
         this.decisionType = Objects.requireNonNull(decisionType);
         this.candidates = List.copyOf(candidates);
@@ -160,6 +182,7 @@ public final class DecisionRequest {
         this.orderContext = orderContext;
         this.copySpellResolveFirstOrderContext = copySpellResolveFirstOrderContext;
         this.surveilPartitionContext = surveilPartitionContext;
+        this.surveilRetainedTopOrderContext = surveilRetainedTopOrderContext;
         if (this.candidates.isEmpty()) {
             throw new IllegalArgumentException("A DecisionRequest must contain at least one legal candidate");
         }
@@ -212,6 +235,15 @@ public final class DecisionRequest {
             throw new IllegalArgumentException(
                     "Surveil partition candidates require a Surveil partition context");
         }
+        if (surveilRetainedTopOrderContext != null) {
+            validateSurveilRetainedTopOrderRequest(this.candidates, surveilRetainedTopOrderContext);
+        } else if (orderContext == null && copySpellResolveFirstOrderContext == null
+                && this.candidates.stream().anyMatch(candidate ->
+                candidate.getSurveilRetainedTopOrderCandidateKind() != null
+                        || candidate.getSurveilRetainedTopOrderCard() != null)) {
+            throw new IllegalArgumentException(
+                    "Surveil retained-top ORDER candidates require a retained-top ORDER context");
+        }
         if (decisionType == DecisionType.ATTACK && attackContext == null) {
             throw new IllegalArgumentException("An ATTACK DecisionRequest requires attack context");
         }
@@ -236,19 +268,21 @@ public final class DecisionRequest {
         if (decisionType != DecisionType.CONFIRMATION && confirmationContext != null) {
             throw new IllegalArgumentException("Only CONFIRMATION DecisionRequests may contain confirmation context");
         }
-        if (decisionType == DecisionType.ORDER && orderContext == null
-                && copySpellResolveFirstOrderContext == null) {
-            throw new IllegalArgumentException("An ORDER DecisionRequest requires order context");
+        final int orderContextCount = (orderContext == null ? 0 : 1)
+                + (copySpellResolveFirstOrderContext == null ? 0 : 1)
+                + (surveilRetainedTopOrderContext == null ? 0 : 1);
+        if (decisionType == DecisionType.ORDER && orderContextCount != 1) {
+            throw new IllegalArgumentException(
+                    "An ORDER DecisionRequest requires exactly one order context");
         }
-        if (decisionType != DecisionType.ORDER
-                && (orderContext != null || copySpellResolveFirstOrderContext != null)) {
+        if (decisionType != DecisionType.ORDER && orderContextCount != 0) {
             throw new IllegalArgumentException("Only ORDER DecisionRequests may contain order context");
         }
         if (decisionType == DecisionType.ORDER) {
             if (candidates.size() < 2) {
                 throw new IllegalArgumentException("An ORDER DecisionRequest requires at least two candidates");
             }
-            if (orderContext != null) {
+            if (surveilRetainedTopOrderContext == null && orderContext != null) {
                 if (copySpellResolveFirstOrderContext != null
                         || orderContext.getProfile() != SimultaneousTriggerOrderProfile.SIMULTANEOUS_TRIGGER_ORDER
                         || orderContext.getDirection() != OrderDirection.RESOLVE_FIRST
@@ -261,12 +295,14 @@ public final class DecisionRequest {
                             || candidate.getOrderItem() == null
                             || candidate.getCopySpellResolveFirstOrderKind() != null
                             || candidate.getCopySpellResolveFirstOrderItem() != null
+                            || candidate.getSurveilRetainedTopOrderCandidateKind() != null
+                            || candidate.getSurveilRetainedTopOrderCard() != null
                             || !candidate.getSemanticKey().equals("RESOLVE_FIRST|"
                                     + candidate.getOrderItem().getItemId())) {
                         throw new IllegalArgumentException("ORDER candidates must be SELECT_RESOLVE_FIRST items");
                     }
                 }
-            } else {
+            } else if (surveilRetainedTopOrderContext == null) {
                 if (copySpellResolveFirstOrderContext.getProfile()
                         != CopySpellResolveFirstOrderProfile.COPY_SPELL_RESOLVE_FIRST_ORDER
                         || copySpellResolveFirstOrderContext.getDirection() != OrderDirection.RESOLVE_FIRST
@@ -280,6 +316,8 @@ public final class DecisionRequest {
                             || candidate.getCopySpellResolveFirstOrderItem() == null
                             || candidate.getOrderKind() != null
                             || candidate.getOrderItem() != null
+                            || candidate.getSurveilRetainedTopOrderCandidateKind() != null
+                            || candidate.getSurveilRetainedTopOrderCard() != null
                             || !candidate.getSemanticKey().equals("RESOLVE_FIRST|"
                                     + candidate.getCopySpellResolveFirstOrderItem().getItemId())) {
                         throw new IllegalArgumentException("ORDER candidates must be COPIED_SPELL items");
@@ -291,6 +329,68 @@ public final class DecisionRequest {
                 || candidate.getCopySpellResolveFirstOrderKind() != null
                 || candidate.getCopySpellResolveFirstOrderItem() != null)) {
             throw new IllegalArgumentException("ORDER candidates require DecisionType.ORDER");
+        }
+    }
+
+    private static void validateSurveilRetainedTopOrderRequest(final List<LegalCandidate> candidates,
+            final SurveilRetainedTopOrderContext context) {
+        if (context.getProfile() != SurveilRetainedTopOrderProfile.SURVEIL_RETAINED_TOP_ORDER) {
+            throw new IllegalArgumentException(
+                    "Surveil retained-top ORDER context profile must be SURVEIL_RETAINED_TOP_ORDER");
+        }
+        if (context.getDirection() != SurveilRetainedTopOrderDirection.TOP_FIRST) {
+            throw new IllegalArgumentException(
+                    "Surveil retained-top ORDER context direction must be TOP_FIRST");
+        }
+        if (context.getRetainedItemCount() < 2) {
+            throw new IllegalArgumentException(
+                    "Surveil retained-top ORDER context retainedItemCount must be at least 2");
+        }
+        if (context.getDecisionStepIndex() < 0
+                || context.getDecisionStepIndex() > context.getRetainedItemCount() - 2) {
+            throw new IllegalArgumentException(
+                    "Surveil retained-top ORDER context decisionStepIndex must be within "
+                            + "0..retainedItemCount-2");
+        }
+        if (candidates.size() != context.getRetainedItemCount() - context.getDecisionStepIndex()) {
+            throw new IllegalArgumentException(
+                    "Surveil retained-top ORDER candidate count must equal "
+                            + "retainedItemCount - decisionStepIndex");
+        }
+
+        final Set<Long> retainedItemIds = new HashSet<>();
+        for (final SurveilPartitionCard item : context.getRetainedItems()) {
+            if (!retainedItemIds.add(item.getItemId())) {
+                throw new IllegalArgumentException(
+                        "Surveil retained-top context item IDs must be unique");
+            }
+        }
+
+        final Set<Long> candidateItemIds = new HashSet<>();
+        for (int index = 0; index < candidates.size(); index++) {
+            final LegalCandidate candidate = candidates.get(index);
+            final SurveilRetainedTopOrderCandidateKind kind =
+                    candidate.getSurveilRetainedTopOrderCandidateKind();
+            final SurveilPartitionCard item = candidate.getSurveilRetainedTopOrderCard();
+            final SurveilPartitionCard canonicalItem = item == null ? null
+                    : context.getRetainedItems().stream()
+                            .filter(retainedItem -> retainedItem.getItemId() == item.getItemId())
+                            .findFirst()
+                            .orElse(null);
+            if (candidate.getCandidateId() != index
+                    || kind != SurveilRetainedTopOrderCandidateKind.SELECT_NEXT_TOP
+                    || item == null
+                    || !retainedItemIds.contains(item.getItemId())
+                    || canonicalItem != item
+                    || !candidateItemIds.add(item.getItemId())
+                    || hasUnrelatedPayload(candidate)
+                    || candidate.getSurveilPartitionCandidateKind() != null
+                    || candidate.getSurveilPartitionCard() != null
+                    || !LegalCandidate.surveilRetainedTopOrderSemanticKey(item)
+                            .equals(candidate.getSemanticKey())) {
+                throw new IllegalArgumentException(
+                        "Surveil retained-top ORDER candidates must match the exact typed item shape");
+            }
         }
     }
 
@@ -312,6 +412,8 @@ public final class DecisionRequest {
             final SurveilPartitionCard item = candidate.getSurveilPartitionCard();
             if (kind == null || item == null || item.getItemId() != context.getCurrentItemId()
                     || hasUnrelatedPayload(candidate)
+                    || candidate.getSurveilRetainedTopOrderCandidateKind() != null
+                    || candidate.getSurveilRetainedTopOrderCard() != null
                     || !candidate.getSemanticKey().equals(surveilSemanticKey(kind, item))) {
                 throw new IllegalArgumentException(
                         "Surveil partition candidates must match the current typed item and operation");
@@ -450,6 +552,11 @@ public final class DecisionRequest {
     /** L1C-only semantic session context. */
     public CopySpellResolveFirstOrderContext getCopySpellResolveFirstOrderContext() {
         return copySpellResolveFirstOrderContext;
+    }
+
+    /** L2B-only typed Surveil retained-top ORDER context. */
+    public SurveilRetainedTopOrderContext getSurveilRetainedTopOrderContext() {
+        return surveilRetainedTopOrderContext;
     }
 
     public boolean isForced() {

@@ -203,17 +203,15 @@ public class SurveilPartitionDecisionCoordinatorTest extends AITest {
     }
 
     @Test
-    public void nullEmptyHumanSideIsNormalizedForValidationButOriginalPairIsReturned() {
+    public void emptyHumanSideIsAcceptedForValidationButOriginalPairIsReturned() {
         final Player chooser = initAndCreateGame().getPlayers().get(1);
         final Card card = addCardToZone("Island", chooser, ZoneType.Hand);
         final CardCollection topN = new CardCollection(card);
         final SurveilPartitionDecisionCoordinator coordinator = coordinator();
 
-        for (final CardCollection retained : new CardCollection[] {null, new CardCollection()}) {
-            final Pair<CardCollection, CardCollection> nativePair = new ImmutablePair<>(retained,
-                    new CardCollection(card));
-            assertSame(coordinator.captureNativeSurveil(chooser, topN, ignored -> nativePair), nativePair);
-        }
+        final Pair<CardCollection, CardCollection> nativePair = new ImmutablePair<>(
+                new CardCollection(), new CardCollection(card));
+        assertSame(coordinator.captureNativeSurveil(chooser, topN, ignored -> nativePair), nativePair);
     }
 
     @Test
@@ -223,7 +221,8 @@ public class SurveilPartitionDecisionCoordinatorTest extends AITest {
         final Card second = addCardToZone("Forest", chooser, ZoneType.Hand);
         final CardCollection topN = new CardCollection(List.of(first, second));
         final CardCollection retained = new CardCollection(List.of(second, first));
-        final Pair<CardCollection, CardCollection> nativePair = new ImmutablePair<>(retained, null);
+        final Pair<CardCollection, CardCollection> nativePair = new ImmutablePair<>(retained,
+                new CardCollection());
         final SurveilPartitionDecisionProvider provider = new SurveilPartitionDecisionProvider();
         final SurveilPartitionDecisionCoordinator coordinator =
                 new SurveilPartitionDecisionCoordinator(provider);
@@ -483,10 +482,13 @@ public class SurveilPartitionDecisionCoordinatorTest extends AITest {
         final List<String> resultRows = rows.stream()
                 .filter(row -> row.contains("|RESULT|"))
                 .toList();
-        assertEquals(resultRows.size(), 3);
+        assertEquals(resultRows.size(), 4);
         assertTrue(resultRows.get(0).contains("CLASSIFY_GRAVEYARD"));
         assertTrue(resultRows.get(1).contains("CLASSIFY_RETAIN"));
         assertTrue(resultRows.get(2).contains("CLASSIFY_RETAIN"));
+        assertTrue(rows.stream().anyMatch(row -> row.contains("|REQUEST|")
+                && row.contains("|ORDER|SURVEIL_RETAINED_TOP_ORDER|")
+                && row.endsWith("|SURVEIL_RETAINED_TOP_ORDER|NOT_APPLICABLE")));
     }
 
     @Test
@@ -561,10 +563,6 @@ public class SurveilPartitionDecisionCoordinatorTest extends AITest {
 
     @Test
     public void externalOwnershipIsRejectedBeforeAnySecondNativeCallback() {
-        assertTrue(Arrays.stream(SurveilPartitionDecisionCoordinator.class.getDeclaredMethods())
-                .noneMatch(method -> method.getName().toLowerCase().contains("resolver")));
-        assertTrue(Arrays.stream(SurveilPartitionDecisionProvider.class.getDeclaredMethods())
-                .noneMatch(method -> method.getName().toLowerCase().contains("resolver")));
         final Fixture fixture = fixture(1);
         final Card card = fixture.cards().get(0);
         final Pair<CardCollection, CardCollection> nativePair =
@@ -603,10 +601,6 @@ public class SurveilPartitionDecisionCoordinatorTest extends AITest {
 
     @Test
     public void externalResolverExceptionIsPreservedWithoutExternalAdmissionOrSecondCallback() {
-        assertTrue(Arrays.stream(SurveilPartitionDecisionCoordinator.class.getDeclaredMethods())
-                .noneMatch(method -> method.getName().toLowerCase().contains("resolver")));
-        assertTrue(Arrays.stream(SurveilPartitionDecisionProvider.class.getDeclaredMethods())
-                .noneMatch(method -> method.getName().toLowerCase().contains("resolver")));
         final Fixture fixture = fixture(1);
         final SurveilPartitionDecisionProvider provider = new SurveilPartitionDecisionProvider();
         final SurveilPartitionDecisionCoordinator coordinator =

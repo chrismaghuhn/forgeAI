@@ -9,7 +9,8 @@ public final class DecisionTraceRequestRecord {
         OTHER,
         SIMULTANEOUS_TRIGGER_ORDER,
         COPY_SPELL_RESOLVE_FIRST_ORDER,
-        SURVEIL_PARTITION
+        SURVEIL_PARTITION,
+        SURVEIL_RETAINED_TOP_ORDER
     }
 
     private final long traceRequestIndex;
@@ -121,6 +122,18 @@ public final class DecisionTraceRequestRecord {
         return decisionType == DecisionType.CARD_SELECTION
                 && profile == Profile.SURVEIL_PARTITION
                 && "SURVEIL_PARTITION".equals(adapterOrStage);
+    }
+
+    public boolean isSurveilRetainedTopOrderRequest() {
+        return decisionType == DecisionType.ORDER
+                && profile == Profile.SURVEIL_RETAINED_TOP_ORDER
+                && "SURVEIL_RETAINED_TOP_ORDER".equals(adapterOrStage);
+    }
+
+    public boolean isSurveilRetainedTopOrderBearing() {
+        return isSurveilRetainedTopOrderRequest()
+                || profile == Profile.SURVEIL_RETAINED_TOP_ORDER
+                || "SURVEIL_RETAINED_TOP_ORDER".equals(adapterOrStage);
     }
 
     /** Parses a persisted REQUEST line, preserving malformed V3 metadata as null for fail-closed checks. */

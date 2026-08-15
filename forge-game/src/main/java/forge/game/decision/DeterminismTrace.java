@@ -210,7 +210,8 @@ public final class DeterminismTrace {
 
     private String decisionTraceVersion() {
         return decisionRequests.stream().anyMatch(record -> record.isCopySpellResolveFirstOrderRequest()
-                || record.isSurveilPartitionRequest())
+                || record.isSurveilPartitionRequest()
+                || record.isSurveilRetainedTopOrderBearing())
                 ? DECISION_TRACE_V3 : DECISION_TRACE_VERSION;
     }
 

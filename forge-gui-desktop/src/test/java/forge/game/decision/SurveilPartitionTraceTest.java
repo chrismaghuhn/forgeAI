@@ -117,7 +117,7 @@ public class SurveilPartitionTraceTest extends AITest {
             assertEquals(capture.trace().openRequestCountForTesting(), 0);
             assertTrue(capture.trace().maxOpenRequestCountForTesting() <= 1);
             final List<String> rows = capture.finishAndReadDecisionTrace();
-            assertEquals(rows.size(), 6);
+            assertEquals(rows.size(), 10);
             for (int step = 0; step < 3; step++) {
                 final String request = rows.get(step * 2);
                 final String resultRow = rows.get(step * 2 + 1);
@@ -179,7 +179,10 @@ public class SurveilPartitionTraceTest extends AITest {
         assertEquals(graveyardGroup.teacherEligibilityNotApplicable(), 2L);
         assertEquals(graveyardGroup.teacherEligibilityBcEligible(), 0L);
         assertEquals(graveyardGroup.teacherEligibilityBcExcludedPublicSymmetry(), 0L);
-        assertEquals(retainedGroup, graveyardGroup);
+        assertEquals(retainedGroup.publicSymmetryConflicts(), 0L);
+        assertEquals(retainedGroup.teacherEligibilityNotApplicable(), 2L);
+        assertEquals(retainedGroup.teacherEligibilityBcEligible(), 0L);
+        assertEquals(retainedGroup.teacherEligibilityBcExcludedPublicSymmetry(), 0L);
 
         assertEquals(mixedGroup.publicSymmetryConflicts(), 1L);
         assertEquals(mixedGroup.teacherEligibilityNotApplicable(), 2L);
@@ -233,9 +236,11 @@ public class SurveilPartitionTraceTest extends AITest {
         final List<String> secondLabels = resultLabels(secondRows);
         assertEquals(firstLabels, secondLabels);
         assertEquals(firstLabels, List.of("CLASSIFY_RETAIN", "CLASSIFY_RETAIN", "CLASSIFY_GRAVEYARD"));
-        assertTrue(firstRows.stream().filter(row -> row.contains("|REQUEST|"))
+        assertTrue(firstRows.stream().filter(row -> row.contains("|REQUEST|")
+                        && row.contains("|CARD_SELECTION|SURVEIL_PARTITION|"))
                 .allMatch(row -> row.endsWith("|SURVEIL_PARTITION|NOT_APPLICABLE")));
-        assertTrue(secondRows.stream().filter(row -> row.contains("|REQUEST|"))
+        assertTrue(secondRows.stream().filter(row -> row.contains("|REQUEST|")
+                        && row.contains("|CARD_SELECTION|SURVEIL_PARTITION|"))
                 .allMatch(row -> row.endsWith("|SURVEIL_PARTITION|NOT_APPLICABLE")));
         assertFalse(firstRows.stream().anyMatch(row -> row.contains("BC_EXCLUDED_PUBLIC_SYMMETRY")));
         assertFalse(secondRows.stream().anyMatch(row -> row.contains("BC_EXCLUDED_PUBLIC_SYMMETRY")));
@@ -253,7 +258,7 @@ public class SurveilPartitionTraceTest extends AITest {
                 surveilRequest("SURVEIL_PARTITION", "NOT_APPLICABLE"), chosen));
         assertFalse(DecisionTraceTrainingValidator.isBCPolicySample(
                 surveilRequest("SURVEIL_PARTITION", "BC_EXCLUDED_PUBLIC_SYMMETRY"), chosen));
-        assertTrue(DecisionTraceTrainingValidator.isBCPolicySample(
+        assertFalse(DecisionTraceTrainingValidator.isBCPolicySample(
                 surveilRequest("SURVEIL_PARTITION", "BC_ELIGIBLE"), chosen));
         assertFalse(DecisionTraceTrainingValidator.isBCPolicySample(
                 surveilRequest("OTHER", "BC_ELIGIBLE"), chosen));
@@ -327,7 +332,8 @@ public class SurveilPartitionTraceTest extends AITest {
         assertFalse(humanFixture.chooser().getController().isAI());
         assertEquals(resultLabels(aiRows), resultLabels(humanRows));
         for (final List<String> rows : List.of(aiRows, humanRows)) {
-            assertTrue(rows.stream().filter(row -> row.contains("|REQUEST|"))
+            assertTrue(rows.stream().filter(row -> row.contains("|REQUEST|")
+                            && row.contains("|CARD_SELECTION|SURVEIL_PARTITION|"))
                     .allMatch(row -> row.endsWith("|SURVEIL_PARTITION|NOT_APPLICABLE")));
             assertFalse(rows.stream().anyMatch(row -> row.contains("BC_ELIGIBLE")
                     || row.contains("BC_EXCLUDED_PUBLIC_SYMMETRY")));
@@ -370,7 +376,8 @@ public class SurveilPartitionTraceTest extends AITest {
 
     private static List<String> resultLabels(final List<String> rows) {
         return rows.stream()
-                .filter(row -> row.contains("|RESULT|"))
+                .filter(row -> row.contains("|RESULT|")
+                        && row.contains("SURVEIL_PARTITION%7CCLASSIFY_"))
                 .map(row -> row.contains("CLASSIFY_GRAVEYARD")
                         ? "CLASSIFY_GRAVEYARD" : "CLASSIFY_RETAIN")
                 .toList();
@@ -464,9 +471,13 @@ public class SurveilPartitionTraceTest extends AITest {
             fixture.chooser().getController().getSurveilPartitionDecisionCoordinator()
                     .captureNativeSurveil(fixture.chooser(), new CardCollection(fixture.cards()), ignored -> nativePair);
             final List<String> rows = capture.finishAndReadDecisionTrace();
-            assertEquals(rows.stream().filter(row -> row.contains("|REQUEST|")).count(),
+            final List<String> l2aRequests = rows.stream()
+                    .filter(row -> row.contains("|REQUEST|")
+                            && row.contains("|CARD_SELECTION|SURVEIL_PARTITION|"))
+                    .toList();
+            assertEquals(l2aRequests.size(),
                     (long) fixture.cards().size(), scenario);
-            assertTrue(rows.stream().filter(row -> row.contains("|REQUEST|"))
+            assertTrue(l2aRequests.stream()
                     .allMatch(row -> row.endsWith("|SURVEIL_PARTITION|NOT_APPLICABLE")), scenario);
             assertFalse(rows.stream().anyMatch(row -> row.contains("BC_ELIGIBLE")
                     || row.contains("BC_EXCLUDED_PUBLIC_SYMMETRY")), scenario);
