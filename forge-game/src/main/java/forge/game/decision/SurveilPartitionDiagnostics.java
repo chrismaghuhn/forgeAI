@@ -27,7 +27,7 @@ public final class SurveilPartitionDiagnostics {
             "run-workload sim -d Izzet Guild Kit Dimir Guild Kit -n 10 -s 20260810 -q";
     private static final Set<String> APPROVED_REASON_TOKENS = Set.of(
             "NULL_TOP_N", "UNSUPPORTED_ADMISSION", "SESSION_INTEGRITY_FAILURE",
-            "IDENTITY", "MAPPING_FAILED", "UNKNOWN");
+            "IDENTITY", "MAPPING_FAILED", "UNOBSERVED", "UNKNOWN");
     private static final Set<String> APPROVED_REASON_COUNTER_KEYS = Set.of(
             "capture_admission_failure_NULL_TOP_N",
             "capture_admission_failure_UNSUPPORTED_ADMISSION",
@@ -54,6 +54,23 @@ public final class SurveilPartitionDiagnostics {
     public static void recordCaptureAdmissionFailure(final String reason) {
         increment("capture_admission_failures");
         increment("capture_admission_failure_" + sanitize(reason));
+    }
+
+    static void recordOwnerSelected(final SurveilPartitionOwner owner) {
+        if (owner == null) {
+            increment("owner_selected_UNKNOWN");
+        } else {
+            increment("owner_selected_" + owner.name());
+        }
+    }
+
+    static void recordEmptyTopN() {
+        increment("empty_top_n_bypasses");
+    }
+
+    static void recordPreHandleCaptureFailure(final String reason) {
+        increment("pre_handle_capture_failures");
+        increment("pre_handle_capture_failure_" + sanitize(reason));
     }
 
     static void recordArrangeCall() {
@@ -90,6 +107,25 @@ public final class SurveilPartitionDiagnostics {
     static void recordMembershipResult() {
         increment("membership_result_count");
         increment("teacher_eligibility_not_applicable_count");
+    }
+
+    static void recordRetainedOrderRequest(final int candidateCount) {
+        increment("retained_order_request_count");
+        incrementBy("retained_order_candidate_count", candidateCount);
+    }
+
+    static void recordRetainedOrderResult() {
+        increment("retained_order_result_count");
+        increment("retained_order_teacher_eligibility_not_applicable_count");
+    }
+
+    static void recordPairReady() {
+        increment("pair_ready_count");
+    }
+
+    static void recordPostHandleCaptureFailure(final String terminal) {
+        increment("post_handle_capture_failures");
+        increment("post_handle_capture_failure_" + sanitize(terminal));
     }
 
     static void recordN2Cardinality(final int graveyardCount, final int retainedCount) {

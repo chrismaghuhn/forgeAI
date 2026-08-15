@@ -23,6 +23,7 @@ final class SurveilPartitionSession {
     private final int gameId;
     private final Player chooser;
     private final int choosingPlayerId;
+    private final SurveilPartitionOwner selectedOwner;
     private final List<Card> nativeSnapshot;
     private final IdentityHashMap<Card, SurveilItem> nativeItems;
     private final List<SurveilItem> canonicalPolicyItems;
@@ -32,16 +33,26 @@ final class SurveilPartitionSession {
     private final Map<String, EnumSet<SurveilPartitionCandidateKind>> symmetryLabels;
     private final Map<String, Boolean> symmetryConflicts;
     private List<Card> retainedNativeList;
+    private List<SurveilPartitionCard> retainedItems;
+    private List<Long> remainingRetainedItemIds;
+    private List<Long> topFirstPrefix;
+    private int retainedOrderStep;
+    private DecisionRequest openRetainedOrderRequest;
+    private List<Card> finalRetainedNativeOrder;
+    private SurveilPartitionCandidateKind[] completedMembershipVector;
+    private boolean l2aComplete;
+    private boolean l2bComplete;
+    private boolean pairReady;
     private int currentStep;
     private DecisionRequest openRequest;
-    private boolean complete;
     private boolean mappingFailed;
     private boolean closed;
     private String closeReason;
 
     SurveilPartitionSession(final long surveilSessionId, final Player chooser,
-            final List<Card> privateSnapshot) {
+            final List<Card> privateSnapshot, final SurveilPartitionOwner selectedOwner) {
         this.surveilSessionId = surveilSessionId;
+        this.selectedOwner = Objects.requireNonNull(selectedOwner, "selectedOwner");
         if (chooser == null) {
             throw new SurveilPartitionAdmissionFailure(
                     SurveilPartitionAdmissionFailureReason.UNSUPPORTED_ADMISSION,
@@ -149,35 +160,60 @@ final class SurveilPartitionSession {
         this.visibleItems = List.copyOf(publicItems);
         this.labels = new SurveilPartitionCandidateKind[canonicalPolicyItems.size()];
         this.retainedNativeList = List.of();
-        this.complete = canonicalPolicyItems.isEmpty();
+        this.retainedItems = List.of();
+        this.remainingRetainedItemIds = new ArrayList<>();
+        this.topFirstPrefix = new ArrayList<>();
+        this.retainedOrderStep = 0;
+        this.finalRetainedNativeOrder = canonicalPolicyItems.isEmpty() ? List.of() : null;
+        this.l2aComplete = canonicalPolicyItems.isEmpty();
+        this.l2bComplete = canonicalPolicyItems.isEmpty();
+        this.pairReady = false;
     }
 
-    long surveilSessionId() {
+    SurveilPartitionSession(final long surveilSessionId, final Player chooser,
+            final List<Card> privateSnapshot) {
+        this(surveilSessionId, chooser, privateSnapshot, SurveilPartitionOwner.NATIVE);
+    }
+
+    synchronized long surveilSessionId() {
         return surveilSessionId;
     }
 
-    boolean isEmptySnapshot() {
+    synchronized SurveilPartitionOwner getOwner() {
+        return selectedOwner;
+    }
+
+    synchronized boolean isEmptySnapshot() {
         return nativeSnapshot.isEmpty();
     }
 
-    boolean isComplete() {
-        return complete;
+    synchronized boolean isComplete() {
+        return l2aComplete;
     }
 
-    boolean isClosed() {
+    synchronized boolean isRetainedTopOrderComplete() {
+        return l2bComplete;
+    }
+
+    synchronized boolean isPairReady() {
+        return pairReady;
+    }
+
+    synchronized boolean isClosed() {
         return closed;
     }
 
-    boolean hasOpenRequest() {
-        return openRequest != null;
+    synchronized boolean hasOpenRequest() {
+        return openRequest != null || openRetainedOrderRequest != null;
     }
 
-    boolean isCaptureMaterializationReady() {
-        return !closed && !complete && nativeMembershipVector != null
+    synchronized boolean isCaptureMaterializationReady() {
+        return !closed && !l2aComplete && (selectedOwner == SurveilPartitionOwner.EXTERNAL
+                || nativeMembershipVector != null)
                 && openRequest == null && isIdentityStable();
     }
 
-    boolean isIdentityStable() {
+    synchronized boolean isIdentityStable() {
         try {
             return chooser.getId() == choosingPlayerId
                     && chooser.getGame() == game
@@ -187,21 +223,21 @@ final class SurveilPartitionSession {
         }
     }
 
-    DecisionRequest createMembershipRequest(final long requestId) {
-        if (complete) {
+    synchronized DecisionRequest createMembershipRequest(final long requestId) {
+        if (closed) {
+            throw new IllegalStateException("Surveil session is closed: " + closeReason);
+        }
+        if (l2aComplete) {
             if (isEmptySnapshot()) {
                 return null;
             }
             throw new IllegalStateException("Surveil session is complete");
         }
-        if (closed) {
-            throw new IllegalStateException("Surveil session is closed: " + closeReason);
-        }
-        requireNativeMembershipVector();
+        requireMembershipAuthority();
         if (!isIdentityStable()) {
             throw new IllegalStateException("Surveil session identity is stale");
         }
-        if (openRequest != null) {
+        if (openRequest != null || openRetainedOrderRequest != null) {
             throw new IllegalStateException("Surveil session already has an open request");
         }
 
@@ -220,15 +256,15 @@ final class SurveilPartitionSession {
         return request;
     }
 
-    void applyMembershipCandidate(final LegalCandidate candidate) {
+    synchronized void applyMembershipCandidate(final LegalCandidate candidate) {
         if (closed) {
             throw new IllegalStateException("Surveil session is closed: " + closeReason);
         }
-        requireNativeMembershipVector();
+        requireMembershipAuthority();
         if (!isIdentityStable()) {
             throw new IllegalStateException("Surveil session identity is stale");
         }
-        if (complete || openRequest == null) {
+        if (l2aComplete || openRequest == null || openRetainedOrderRequest != null) {
             throw new IllegalArgumentException("Surveil session has no outstanding membership request");
         }
         if (candidate == null || !belongsToOpenRequest(candidate)) {
@@ -311,7 +347,192 @@ final class SurveilPartitionSession {
         }
     }
 
-    void recordNativeMembershipVector(final List<SurveilPartitionCandidateKind> canonicalLabels) {
+    synchronized Long itemIdForExactCard(final Card card) {
+        final SurveilItem item = nativeItems.get(card);
+        return item == null ? null : item.itemId;
+    }
+
+    synchronized List<Card> privateSnapshot() {
+        return nativeSnapshot;
+    }
+
+    synchronized List<Card> externalGraveyardSnapshotOrder() {
+        if (!l2aComplete || completedMembershipVector == null
+                || completedMembershipVector.length != canonicalPolicyItems.size()) {
+            throw new IllegalStateException("Surveil external membership is incomplete");
+        }
+        final List<Card> graveyard = new ArrayList<>();
+        for (final Card card : nativeSnapshot) {
+            final SurveilItem item = nativeItems.get(card);
+            if (item == null) {
+                throw new IllegalStateException("Surveil external identity mapping is incomplete");
+            }
+            if (item.label == SurveilPartitionCandidateKind.CLASSIFY_GRAVEYARD) {
+                graveyard.add(card);
+            }
+        }
+        return List.copyOf(graveyard);
+    }
+
+    synchronized boolean isExternalTopFirstOrder(final List<Card> retainedOrder) {
+        if (!l2bComplete || retainedOrder == null || retainedOrder.size() != retainedItems.size()) {
+            return false;
+        }
+        if (retainedItems.isEmpty()) {
+            return true;
+        }
+        if (retainedItems.size() == 1) {
+            final Long itemId = itemIdForExactCard(retainedOrder.get(0));
+            return itemId != null && itemId.longValue() == retainedItems.get(0).getItemId();
+        }
+        if (remainingRetainedItemIds.size() != 1) {
+            return false;
+        }
+        final List<Long> expectedItemIds = new ArrayList<>(topFirstPrefix);
+        expectedItemIds.add(remainingRetainedItemIds.get(0));
+        if (expectedItemIds.size() != retainedOrder.size()) {
+            return false;
+        }
+        final Set<Long> seen = new HashSet<>();
+        for (int index = 0; index < retainedOrder.size(); index++) {
+            final Long itemId = itemIdForExactCard(retainedOrder.get(index));
+            if (itemId == null || itemId.longValue() != expectedItemIds.get(index)
+                    || !seen.add(itemId)) {
+                return false;
+            }
+        }
+        return seen.size() == retainedItems.size();
+    }
+
+    synchronized DecisionRequest createRetainedTopOrderRequest(final long requestId) {
+        if (closed) {
+            throw new IllegalStateException("Surveil session is closed: " + closeReason);
+        }
+        if (!l2aComplete) {
+            throw new IllegalStateException("Surveil L2A mapping is incomplete");
+        }
+        if (!isIdentityStable()) {
+            throw new IllegalStateException("Surveil session identity is stale");
+        }
+        requireMembershipAuthority();
+        if (openRequest != null || openRetainedOrderRequest != null) {
+            throw new IllegalStateException("Surveil session already has an open request");
+        }
+        if (l2bComplete) {
+            return null;
+        }
+        if (remainingRetainedItemIds.size() < 2) {
+            throw new IllegalStateException("Surveil retained order has no selectable remaining items");
+        }
+
+        final List<LegalCandidate> candidates = new ArrayList<>(remainingRetainedItemIds.size());
+        for (int index = 0; index < remainingRetainedItemIds.size(); index++) {
+            candidates.add(LegalCandidate.surveilRetainedTopOrder(index,
+                    retainedItemForId(remainingRetainedItemIds.get(index))));
+        }
+        final SurveilRetainedTopOrderContext context = new SurveilRetainedTopOrderContext(
+                SurveilRetainedTopOrderProfile.SURVEIL_RETAINED_TOP_ORDER,
+                SurveilRetainedTopOrderDirection.TOP_FIRST, surveilSessionId, retainedOrderStep,
+                choosingPlayerId, retainedItems.size(), retainedItems);
+        final DecisionRequest request = new DecisionRequest(requestId, DecisionType.ORDER, candidates, context);
+        openRetainedOrderRequest = request;
+        return request;
+    }
+
+    synchronized void applyRetainedTopOrderCandidate(final LegalCandidate candidate) {
+        if (closed) {
+            throw new IllegalStateException("Surveil session is closed: " + closeReason);
+        }
+        if (!isIdentityStable()) {
+            throw new IllegalStateException("Surveil session identity is stale");
+        }
+        if (!l2aComplete || l2bComplete || openRetainedOrderRequest == null || openRequest != null) {
+            throw new IllegalArgumentException("Surveil session has no outstanding retained order request");
+        }
+
+        final SurveilRetainedTopOrderContext context =
+                openRetainedOrderRequest.getSurveilRetainedTopOrderContext();
+        if (context == null
+                || context.getProfile() != SurveilRetainedTopOrderProfile.SURVEIL_RETAINED_TOP_ORDER
+                || context.getDirection() != SurveilRetainedTopOrderDirection.TOP_FIRST
+                || context.getSurveilSessionId() != surveilSessionId
+                || context.getDecisionStepIndex() != retainedOrderStep
+                || context.getChoosingPlayerId() != choosingPlayerId
+                || context.getRetainedItemCount() != retainedItems.size()
+                || (context.getRetainedItems() != retainedItems
+                        && !context.getRetainedItems().equals(retainedItems))
+                || openRetainedOrderRequest.getDecisionType() != DecisionType.ORDER
+                || openRetainedOrderRequest.getCandidates().size() != remainingRetainedItemIds.size()) {
+            throw new IllegalArgumentException("Surveil retained order request context does not match the session");
+        }
+        if (candidate == null || candidate.getCandidateId() < 0
+                || candidate.getCandidateId() >= openRetainedOrderRequest.getCandidates().size()
+                || openRetainedOrderRequest.getCandidates().get(candidate.getCandidateId()) != candidate) {
+            throw new IllegalArgumentException("Candidate does not belong to the outstanding retained order request");
+        }
+
+        final SurveilRetainedTopOrderCandidateKind kind =
+                candidate.getSurveilRetainedTopOrderCandidateKind();
+        final SurveilPartitionCard item = candidate.getSurveilRetainedTopOrderCard();
+        final SurveilPartitionCard canonicalItem = item == null ? null : retainedItemForId(item.getItemId());
+        if (kind != SurveilRetainedTopOrderCandidateKind.SELECT_NEXT_TOP
+                || item == null
+                || canonicalItem == null
+                || !remainingRetainedItemIds.contains(item.getItemId())
+                || canonicalItem != item
+                || !LegalCandidate.surveilRetainedTopOrderSemanticKey(item)
+                        .equals(candidate.getSemanticKey())
+                || hasUnrelatedPayload(candidate)
+                || candidate.getSurveilPartitionCandidateKind() != null
+                || candidate.getSurveilPartitionCard() != null) {
+            throw new IllegalArgumentException("Candidate is not an exact Surveil retained order choice");
+        }
+
+        topFirstPrefix.add(item.getItemId());
+        remainingRetainedItemIds.remove(item.getItemId());
+        retainedOrderStep++;
+        openRetainedOrderRequest = null;
+        if (remainingRetainedItemIds.size() == 1) {
+            completeRetainedTopOrder();
+        }
+    }
+
+    synchronized List<Card> finalRetainedNativeOrder() {
+        if (closed) {
+            throw new IllegalStateException("Surveil session is closed: " + closeReason);
+        }
+        if (!l2bComplete || finalRetainedNativeOrder == null) {
+            throw new IllegalStateException("Surveil retained order is incomplete");
+        }
+        if (!isIdentityStable()) {
+            throw new IllegalStateException("Surveil session identity is stale");
+        }
+        return finalRetainedNativeOrder;
+    }
+
+    synchronized void markPairReady() {
+        if (closed) {
+            throw new IllegalStateException("Surveil session is closed: " + closeReason);
+        }
+        if (pairReady) {
+            return;
+        }
+        if (!l2aComplete || !l2bComplete || openRequest != null || openRetainedOrderRequest != null) {
+            throw new IllegalStateException("Surveil pair is not ready");
+        }
+        if (!isIdentityStable()) {
+            throw new IllegalStateException("Surveil session identity is stale");
+        }
+        if (selectedOwner == SurveilPartitionOwner.NATIVE) {
+            requireNativeMembershipVector();
+        } else if (completedMembershipVector == null) {
+            throw new IllegalStateException("External Surveil membership labels are incomplete");
+        }
+        pairReady = true;
+    }
+
+    synchronized void recordNativeMembershipVector(
+            final List<SurveilPartitionCandidateKind> canonicalLabels) {
         recordNativeMembershipVector(canonicalLabels, nativeSnapshot);
     }
 
@@ -329,7 +550,7 @@ final class SurveilPartitionSession {
         return List.copyOf(canonicalLabels);
     }
 
-    void recordSymmetryConflicts(final List<SurveilPartitionCandidateKind> canonicalLabels) {
+    synchronized void recordSymmetryConflicts(final List<SurveilPartitionCandidateKind> canonicalLabels) {
         Objects.requireNonNull(canonicalLabels, "canonicalLabels");
         if (canonicalLabels.size() != canonicalPolicyItems.size()) {
             throw new IllegalArgumentException("Surveil symmetry labels have the wrong cardinality");
@@ -350,14 +571,17 @@ final class SurveilPartitionSession {
                 .forEach(ignored -> SurveilPartitionDiagnostics.recordSymmetryConflict());
     }
 
-    void recordNativeMembershipVector(final List<SurveilPartitionCandidateKind> canonicalLabels,
+    synchronized void recordNativeMembershipVector(final List<SurveilPartitionCandidateKind> canonicalLabels,
             final List<Card> retainedNativeOrder) {
         Objects.requireNonNull(canonicalLabels, "canonicalLabels");
         Objects.requireNonNull(retainedNativeOrder, "retainedNativeOrder");
         if (closed) {
             throw new IllegalStateException("Surveil session is closed: " + closeReason);
         }
-        if (complete && !isEmptySnapshot()) {
+        if (selectedOwner != SurveilPartitionOwner.NATIVE) {
+            throw new IllegalStateException("Native membership vector requires NATIVE ownership");
+        }
+        if (l2aComplete && !isEmptySnapshot()) {
             throw new IllegalStateException("Surveil session is complete");
         }
         if (openRequest != null || currentStep != 0) {
@@ -385,7 +609,7 @@ final class SurveilPartitionSession {
         nativeMembershipVector = validated;
     }
 
-    SurveilPartitionCandidateKind nativeMembershipKindAt(final int canonicalStep) {
+    synchronized SurveilPartitionCandidateKind nativeMembershipKindAt(final int canonicalStep) {
         if (closed) {
             throw new IllegalStateException("Surveil session is closed: " + closeReason);
         }
@@ -402,14 +626,18 @@ final class SurveilPartitionSession {
         return kind;
     }
 
-    boolean isMappingFailed() {
+    synchronized boolean isMappingFailed() {
         return mappingFailed;
     }
 
-    void markClosed(final String reason) {
+    synchronized void markClosed(final String reason) {
+        if (closed) {
+            return;
+        }
         closed = true;
-        closeReason = Objects.requireNonNull(reason, "reason");
+        closeReason = reason == null ? "CLOSED" : reason;
         openRequest = null;
+        openRetainedOrderRequest = null;
     }
 
     private boolean belongsToOpenRequest(final LegalCandidate candidate) {
@@ -421,10 +649,120 @@ final class SurveilPartitionSession {
         return false;
     }
 
+    private void requireMembershipAuthority() {
+        if (selectedOwner != SurveilPartitionOwner.NATIVE) {
+            return;
+        }
+        requireNativeMembershipVector();
+    }
+
     private void requireNativeMembershipVector() {
         if (!isEmptySnapshot() && nativeMembershipVector == null) {
             throw new IllegalStateException("Surveil native membership vector has not been recorded");
         }
+    }
+
+    private void initializeRetainedOrderState() {
+        final List<SurveilPartitionCard> retained = new ArrayList<>();
+        for (final SurveilItem item : canonicalPolicyItems) {
+            if (item.label == SurveilPartitionCandidateKind.CLASSIFY_RETAIN) {
+                retained.add(item.projection);
+            }
+        }
+        retainedItems = List.copyOf(retained);
+        remainingRetainedItemIds = new ArrayList<>();
+        topFirstPrefix = new ArrayList<>();
+        retainedOrderStep = 0;
+        openRetainedOrderRequest = null;
+        if (retainedItems.isEmpty()) {
+            finalRetainedNativeOrder = List.of();
+            l2bComplete = true;
+            return;
+        }
+        if (retainedItems.size() == 1) {
+            finalRetainedNativeOrder = List.of(nativeCardForItemId(retainedItems.get(0).getItemId()));
+            l2bComplete = true;
+            return;
+        }
+        for (final SurveilPartitionCard item : retainedItems) {
+            remainingRetainedItemIds.add(item.getItemId());
+        }
+        finalRetainedNativeOrder = null;
+        l2bComplete = false;
+    }
+
+    private void completeRetainedTopOrder() {
+        if (remainingRetainedItemIds.size() != 1) {
+            throw new IllegalStateException("Surveil retained order does not have exactly one final item");
+        }
+        final List<Long> finalItemIds = new ArrayList<>(topFirstPrefix);
+        finalItemIds.add(remainingRetainedItemIds.get(0));
+        if (finalItemIds.size() != retainedItems.size()) {
+            throw new IllegalStateException("Surveil retained order has the wrong cardinality");
+        }
+        final List<Card> finalOrder = new ArrayList<>(finalItemIds.size());
+        for (final long itemId : finalItemIds) {
+            final Card nativeCard = nativeCardForItemId(itemId);
+            if (nativeCard == null) {
+                throw new IllegalStateException("Surveil retained order item is not native-backed");
+            }
+            finalOrder.add(nativeCard);
+        }
+        finalRetainedNativeOrder = List.copyOf(finalOrder);
+        l2bComplete = true;
+    }
+
+    private SurveilPartitionCard retainedItemForId(final long itemId) {
+        for (final SurveilPartitionCard item : retainedItems) {
+            if (item.getItemId() == itemId) {
+                return item;
+            }
+        }
+        return null;
+    }
+
+    private Card nativeCardForItemId(final long itemId) {
+        for (final SurveilItem item : canonicalPolicyItems) {
+            if (item.itemId == itemId) {
+                return item.nativeCard;
+            }
+        }
+        return null;
+    }
+
+    private static boolean hasUnrelatedPayload(final LegalCandidate candidate) {
+        return candidate.getKind() != null
+                || candidate.getTargetKind() != null
+                || candidate.getPaymentKind() != null
+                || candidate.getXValue() != null
+                || candidate.getModeOrdinal() != null
+                || !candidate.getModeDescription().isEmpty()
+                || candidate.isModeUsesTargeting()
+                || candidate.getCardSelectionKind() != null
+                || candidate.getCardSelectionCard() != null
+                || candidate.getAttackKind() != null
+                || candidate.getAttackCard() != null
+                || candidate.getAttackDefender() != null
+                || candidate.getBlockKind() != null
+                || candidate.getBlockerCard() != null
+                || candidate.getBlockAttackerCard() != null
+                || candidate.getMulliganKind() != null
+                || candidate.getConfirmationKind() != null
+                || candidate.getOrderKind() != null
+                || candidate.getOrderItem() != null
+                || candidate.getCopySpellResolveFirstOrderKind() != null
+                || candidate.getCopySpellResolveFirstOrderItem() != null
+                || candidate.getTargetEntityId() != -1
+                || !candidate.getTargetName().isEmpty()
+                || candidate.getTargetZone() != null
+                || candidate.getSourceCardId() != -1
+                || !candidate.getSourceName().isEmpty()
+                || candidate.getSourceZone() != null
+                || candidate.getSourceState() != null
+                || !candidate.getAbilityDescription().isEmpty()
+                || candidate.getSpellAbility() != null
+                || candidate.getTarget() != null
+                || candidate.getMana() != null;
     }
 
     private void completeMapping() {
@@ -434,7 +772,9 @@ final class SurveilPartitionSession {
                     throw new IllegalStateException("Surveil native mapping is incomplete");
                 }
             }
-            this.complete = true;
+            this.completedMembershipVector = labels.clone();
+            initializeRetainedOrderState();
+            this.l2aComplete = true;
         } catch (final RuntimeException exception) {
             mappingFailed = true;
             throw exception;

@@ -18,6 +18,68 @@ public final class DecisionTraceTrainingValidator {
             return false;
         }
         final String selected = result.getSelectedCandidateSemanticKey();
+        if (selected == null) {
+            return false;
+        }
+        if (request.isSurveilRetainedTopOrderBearing()) {
+            return isSurveilRetainedTopOrderHistoryValid(request, result, selected);
+        }
+        if (isSurveilPartitionBearing(request)) {
+            return isSurveilPartitionHistoryValid(request, result, selected);
+        }
+        return isGenericHistoryValid(request, result, selected);
+    }
+
+    private static boolean isSurveilRetainedTopOrderHistoryValid(
+            final DecisionTraceRequestRecord request, final DecisionTraceResultRecord result,
+            final String selected) {
+        if (!request.isSurveilRetainedTopOrderRequest() || request.isForced()) {
+            return false;
+        }
+        switch (result.getKind()) {
+        case CHOSEN:
+            final boolean nativeMapped = result.isNativeCallbackCompleted() && result.isMappingAttempted();
+            final boolean externalChosen = !result.isNativeCallbackCompleted()
+                    && !result.isMappingAttempted();
+            return (nativeMapped || externalChosen)
+                    && request.getLegalCandidates().contains(selected);
+        case MAPPING_FAILED:
+            return selected.isEmpty() && result.isNativeCallbackCompleted()
+                    && result.isMappingAttempted();
+        case UNOBSERVED:
+            return selected.isEmpty() && result.isNativeCallbackCompleted()
+                    && !result.isMappingAttempted();
+        case INVALID_EXTERNAL_CANDIDATE:
+            return selected.isEmpty() && !result.isNativeCallbackCompleted()
+                    && !result.isMappingAttempted();
+        case TRACE_INCOMPLETE:
+            return selected.isEmpty() && result.isTraceFinalization();
+        default:
+            return false;
+        }
+    }
+
+    private static boolean isSurveilPartitionHistoryValid(final DecisionTraceRequestRecord request,
+            final DecisionTraceResultRecord result, final String selected) {
+        if (!request.isSurveilPartitionRequest()) {
+            return false;
+        }
+        if (result.getKind() == DecisionTraceResultKind.CHOSEN) {
+            final boolean nativeMapped = result.isNativeCallbackCompleted() && result.isMappingAttempted();
+            final boolean externalChosen = !result.isNativeCallbackCompleted()
+                    && !result.isMappingAttempted();
+            return !request.isForced() && (nativeMapped || externalChosen)
+                    && request.getLegalCandidates().contains(selected);
+        }
+        if (result.getKind() == DecisionTraceResultKind.INVALID_EXTERNAL_CANDIDATE) {
+            return !request.isForced() && selected.isEmpty() && !result.isNativeCallbackCompleted()
+                    && !result.isMappingAttempted();
+        }
+        return isGenericHistoryValid(request, result, selected);
+    }
+
+    private static boolean isGenericHistoryValid(final DecisionTraceRequestRecord request,
+            final DecisionTraceResultRecord result, final String selected) {
         switch (result.getKind()) {
         case CHOSEN:
             final boolean nativeMapped = result.isNativeCallbackCompleted() && result.isMappingAttempted();
@@ -51,12 +113,9 @@ public final class DecisionTraceTrainingValidator {
 
     public static boolean isBCPolicySample(final DecisionTraceRequestRecord request,
             final DecisionTraceResultRecord result) {
-        if (request != null && isSurveilPartitionBearing(request)) {
-            return isHistoryValid(request, result)
-                    && request.isSurveilPartitionRequest()
-                    && result.getKind() == DecisionTraceResultKind.CHOSEN
-                    && request.getTeacherLabelEligibility()
-                            == DecisionTraceTeacherLabelEligibility.BC_ELIGIBLE;
+        if (request != null && (request.isSurveilRetainedTopOrderBearing()
+                || isSurveilPartitionBearing(request))) {
+            return false;
         }
         final boolean profiledOrder = request != null
                 && (request.isSimultaneousTriggerOrderRequest()
