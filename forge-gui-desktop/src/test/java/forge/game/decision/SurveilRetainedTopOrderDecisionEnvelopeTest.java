@@ -62,6 +62,19 @@ public class SurveilRetainedTopOrderDecisionEnvelopeTest extends AITest {
     }
 
     @Test
+    public void rejectsCandidateWithMatchingItemIdButDifferentRetainedProjection() {
+        final SurveilRetainedTopOrderContext context = retainedContext(2, 0);
+        final List<LegalCandidate> candidates = new ArrayList<>(candidatesFor(context));
+        final SurveilPartitionCard canonical = context.getRetainedItems().get(0);
+        candidates.set(0, LegalCandidate.surveilRetainedTopOrder(0,
+                new SurveilPartitionCard(canonical.getItemId(), "Counterfeit projection")));
+
+        final IllegalArgumentException exception = expectThrows(IllegalArgumentException.class,
+                () -> new DecisionRequest(102L, DecisionType.ORDER, candidates, context));
+        assertTrue(exception.getMessage().contains("exact typed item shape"));
+    }
+
+    @Test
     public void rejectsWrongProfile() {
         final SurveilRetainedTopOrderContext context = retainedContext(2, 0);
         replaceField(context, "profile", null);

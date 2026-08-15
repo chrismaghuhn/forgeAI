@@ -372,10 +372,16 @@ public final class DecisionRequest {
             final SurveilRetainedTopOrderCandidateKind kind =
                     candidate.getSurveilRetainedTopOrderCandidateKind();
             final SurveilPartitionCard item = candidate.getSurveilRetainedTopOrderCard();
+            final SurveilPartitionCard canonicalItem = item == null ? null
+                    : context.getRetainedItems().stream()
+                            .filter(retainedItem -> retainedItem.getItemId() == item.getItemId())
+                            .findFirst()
+                            .orElse(null);
             if (candidate.getCandidateId() != index
                     || kind != SurveilRetainedTopOrderCandidateKind.SELECT_NEXT_TOP
                     || item == null
                     || !retainedItemIds.contains(item.getItemId())
+                    || canonicalItem != item
                     || !candidateItemIds.add(item.getItemId())
                     || hasUnrelatedPayload(candidate)
                     || candidate.getSurveilPartitionCandidateKind() != null
